@@ -506,6 +506,8 @@ sơn nước sơn dầu sơn véc véc ni keo dán keo chà keo trộn
 cát vàng cát trắng cát xây cát đổ đá dăm đá mi đá hộc sỏi rải
 thép tròn thép hình thép chữ thép góc thép ray thép chữ thép vuông
 gạch đỏ gạch ống gạch block gạch không nung đá ốp đá lát
+bảng kê giá vật liệu xây dựng dự án nhà ở cao tầng địa điểm
+tên đơn vị số lượng đvt tấn viên xi măng sắt gạch đồng tâm hòa phát
 `.trim().split(/\s+/);
 
 // Load custom words from localStorage
@@ -658,6 +660,10 @@ function removeDiacritics(str) {
 }
 
 function correctWord(word) {
+  // Don't correct pure numbers or uppercase unit codes
+  if (/^\d+$/.test(word)) return word;  // Pure digits like "100", "5000"
+  if (/^[A-Z]{2,4}\d*$/.test(word)) return word;  // Uppercase units like "M3", "KG", "TONS" (no 'i' flag!)
+
   const lower = word.toLowerCase();
   if (VIETNAMESE_DICT.has(lower)) return word;
 
@@ -893,32 +899,13 @@ function textClusterExtract(textItems) {
       if (text.includes('|')) {
         const parts = text.split('|').map(p => p.trim()).filter(p => p);
         if (parts.length >= 2) {
-          // Smart correction: preserve numbers but correct ALL Vietnamese words
-          const correctedCells = parts.map((p, idx) => {
+          // Apply Vietnamese correction to all cells except pure numbers
+          const correctedCells = parts.map(p => {
             // Pure numbers - keep as-is
             if (/^\d+[\.,]?\d*$/.test(p)) return p;
-
-            // Units (short uppercase) - keep as-is
-            if (/^[A-Z]{1,4}\d*$/.test(p) || p.length <= 3 && /^[A-Z]+$/.test(p)) return p;
-
-            // Material column (usually col 1 or 2) with STT prefix: "1. Xi mang Holcim"
-            // Split and correct Vietnamese words, preserve brand names
-            const sttMatch = p.match(/^(\d+\.)\s+(.+)$/);
-            if (sttMatch) {
-              const stt = sttMatch[1];
-              const rest = sttMatch[2];
-              // Correct each word individually, preserving capitalized proper nouns
-              const words = rest.split(/\s+/);
-              const corrected = words.map(word => {
-                // If word is all-caps or Title Case and >5 chars, likely a brand name
-                if (/^[A-Z][a-z]+$/.test(word) && word.length > 5) return word;
-                // Otherwise correct Vietnamese
-                return correctVietnameseText(word);
-              }).join(' ');
-              return stt + ' ' + corrected;
-            }
-
-            // All other text - apply full Vietnamese correction
+            // Units (M3, KG, etc) - keep as-is
+            if (/^[A-Z]{1,4}\d*$/.test(p)) return p;
+            // Everything else - apply Vietnamese correction (trusts dictionary for brand names)
             return correctVietnameseText(p);
           });
           rows.push({ type: 'data', cells: correctedCells, page: +page });
