@@ -11,7 +11,7 @@
 <script src="vietnamese_text_fixes_v2.js"></script>
 <script src="confidence-tracking.js"></script>
 <style>
-:root { --bg: #0f172a; --surface: #1e293b; --border: #334155; --accent: #3b82f6; --accent2: #10b981; --text: #e2e8f0; --dim: #94a3b8; --warn: #f59e0b; }
+:root { --bg: #ffffff; --surface: #f8fafc; --border: #e2e8f0; --accent: #3b82f6; --accent2: #10b981; --text: #0f172a; --dim: #64748b; --warn: #f59e0b; }
 * { margin:0; padding:0; box-sizing:border-box; }
 body { font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace; background: var(--bg); color: var(--text); min-height:100vh; padding: 24px; }
 h1 { font-size: 20px; font-weight: 600; margin-bottom: 4px; }
@@ -72,16 +72,29 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
 </head>
 <body>
 
-<h1>BOQ PDF → <span>Excel</span></h1>
-<p class="subtitle">Client-side table extraction with OCR · <em>no server</em> · pdf.js + Tesseract.js (tessdata_best) + Dictionary + Syllable Model + SheetJS</p>
+<h1>Vietnamese <abbr title="Bill of Quantities - Construction pricing schedules">BOQ</abbr> PDF → <span>Excel</span></h1>
+<p class="subtitle">Extract pricing tables from Vietnamese construction documents · <em>100% private - no data uploaded</em></p>
+<p style="font-size: 11px; color: var(--dim); margin-bottom: 16px;">⚡ Client-side OCR with Vietnamese language model · All processing happens in your browser</p>
 
 <div id="dropzone">
   <input type="file" id="fileInput" accept=".pdf">
   <p><strong>Drop PDF here</strong> or click to browse</p>
+  <div style="margin-top: 12px;">
+    <button onclick="loadSamplePDF()" style="background: var(--accent2); padding: 8px 16px; font-size: 12px;">
+      🎯 Try Sample PDF
+    </button>
+    <span style="font-size: 11px; color: var(--dim); margin-left: 8px;">Test with Vietnamese construction pricing table (1 KB)</span>
+  </div>
 </div>
 
 <div id="progressPanel" class="hidden">
   <div class="progress"><div class="progress-bar" id="pbar" style="width:0%"></div></div>
+  <div style="margin-top: 8px; text-align: center;">
+    <button id="cancelBtn" onclick="cancelProcessing()" style="background: #ef4444; padding: 6px 16px; font-size: 12px;">
+      ⛔ Cancel Processing
+    </button>
+    <div id="progressText" style="font-size: 11px; color: var(--dim); margin-top: 4px;">Processing...</div>
+  </div>
 </div>
 
 <div id="statsPanel" class="panel hidden">
@@ -94,9 +107,11 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
   <div class="log" id="log"></div>
 </div>
 
-<div id="dictPanel" class="panel">
-  <div class="panel-title">Custom Dictionary (375 default + <span id="customCount">0</span> custom)</div>
-  <div style="display: flex; gap: 12px; margin-bottom: 12px;">
+<details id="dictPanel" class="panel">
+  <summary style="cursor: pointer; font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: var(--dim); margin-bottom: 0;">
+    <strong style="color: var(--accent);">⚙️ Advanced:</strong> Custom Dictionary (375 default + <span id="customCount">0</span> custom) · <em style="color: var(--dim); font-size: 10px;">Optional - click to expand</em>
+  </summary>
+  <div style="margin-top: 12px; display: flex; gap: 12px; margin-bottom: 12px;">
     <input type="text" id="customWord" placeholder="Add Vietnamese word (e.g., đào, công, xây)"
            onkeypress="if(event.key==='Enter') addCustomWord()"
            style="flex: 1; background: var(--bg); border: 1px solid var(--border); color: var(--text); padding: 8px 12px; border-radius: 6px; font-family: inherit; font-size: 13px;">
@@ -113,7 +128,7 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
       <button onclick="importCustomDict()" style="padding: 6px 12px; font-size: 11px;">Import JSON</button>
     </div>
   </details>
-</div>
+</details>
 
 <div id="reviewPanel" class="panel hidden">
   <div class="panel-title">Confidence Review</div>
@@ -144,6 +159,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc =
 let extractedRows = [];
 let tesseractWorker = null;
 let syllableCorrector = null;
+let processingCancelled = false;
 
 // ── UI Refs ──
 const $ = id => document.getElementById(id);
@@ -161,6 +177,32 @@ function log(msg, cls = '') {
   logEl.scrollTop = logEl.scrollHeight;
 }
 
+// ── Sample PDF ──
+async function loadSamplePDF() {
+  log('Loading sample PDF...', 'ok');
+  try {
+    const response = await fetch('sample.pdf');
+    if (!response.ok) {
+      throw new Error('Sample PDF not found. Please upload your own PDF.');
+    }
+    const blob = await response.blob();
+    const file = new File([blob], 'sample.pdf', { type: 'application/pdf' });
+    await handleFile(file);
+  } catch (err) {
+    log(`❌ Error loading sample: ${err.message}`, 'err');
+    alert('Sample PDF not found.\n\nPlease upload your own Vietnamese BOQ PDF file.');
+  }
+}
+
+// ── Cancel Processing ──
+function cancelProcessing() {
+  processingCancelled = true;
+  log('⛔ Processing cancelled by user', 'warn');
+  $('progressPanel').classList.add('hidden');
+  $('pbar').style.width = '0%';
+  alert('Processing cancelled.\n\nYou can upload a different file.');
+}
+
 // ── File Input ──
 dropzone.addEventListener('dragover', e => { e.preventDefault(); dropzone.classList.add('dragover'); });
 dropzone.addEventListener('dragleave', () => dropzone.classList.remove('dragover'));
@@ -168,16 +210,47 @@ dropzone.addEventListener('drop', e => { e.preventDefault(); dropzone.classList.
 fileInput.addEventListener('change', e => handleFile(e.target.files[0]));
 
 async function handleFile(file) {
-  if (!file || !file.name.endsWith('.pdf')) { log('Not a PDF file', 'err'); return; }
+  // Reset cancellation flag
+  processingCancelled = false;
+
+  // Validation
+  if (!file) {
+    log('No file selected', 'err');
+    return;
+  }
+
+  if (!file.name.endsWith('.pdf')) {
+    log('❌ Error: Please select a PDF file', 'err');
+    alert('This app only works with PDF files. Please select a .pdf file.');
+    return;
+  }
+
+  const sizeMB = file.size / (1024 * 1024);
+  if (sizeMB > 50) {
+    log(`❌ Error: File too large (${sizeMB.toFixed(1)} MB)`, 'err');
+    alert(`File is too large (${sizeMB.toFixed(1)} MB).\n\nMaximum file size: 50 MB\n\nLarge files may crash your browser. Please use a smaller PDF.`);
+    return;
+  }
+
+  if (sizeMB > 10) {
+    log(`⚠️ Warning: Large file (${sizeMB.toFixed(1)} MB) - processing may take several minutes`, 'warn');
+  }
+
   log(`Loading: ${file.name} (${(file.size/1024).toFixed(0)} KB)`);
   $('progressPanel').classList.remove('hidden');
 
-  const buf = await file.arrayBuffer();
   try {
+    const buf = await file.arrayBuffer();
     await extractPDF(buf);
   } catch (err) {
-    log(`Fatal: ${err.message}`, 'err');
+    if (processingCancelled) {
+      log('Processing cancelled', 'warn');
+      return;
+    }
+    log(`❌ Fatal error: ${err.message}`, 'err');
+    alert(`Processing failed: ${err.message}\n\nPlease try:\n1. A smaller PDF file\n2. Refreshing the page\n3. Using a different browser`);
     console.error(err);
+    $('progressPanel').classList.add('hidden');
   }
 }
 
@@ -197,7 +270,15 @@ async function extractPDF(buffer) {
   let totalOcrWords = 0;
 
   for (let p = 1; p <= numPages; p++) {
+    // Check for cancellation
+    if (processingCancelled) {
+      log('⛔ Processing cancelled', 'warn');
+      $('progressPanel').classList.add('hidden');
+      return;
+    }
+
     $('pbar').style.width = `${(p / numPages * 80)}%`;
+    $('progressText').textContent = `Processing page ${p} of ${numPages}...`;
     const page = await pdf.getPage(p);
     const vp = page.getViewport({ scale: 1.0 });
     const pageH = vp.height;
