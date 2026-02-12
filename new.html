@@ -72,7 +72,7 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
 </head>
 <body>
 
-<h1>Vietnamese <abbr title="Bill of Quantities - Construction pricing schedules">BOQ</abbr> PDF → <span>Excel</span></h1>
+<h1>Vietnamese Bill of Quantities (BOQ) PDF → <span>Excel</span></h1>
 <p class="subtitle">Extract pricing tables from Vietnamese construction documents · <em>100% private - no data uploaded</em></p>
 <p style="font-size: 11px; color: var(--dim); margin-bottom: 16px;">⚡ Client-side OCR with Vietnamese language model · All processing happens in your browser</p>
 
@@ -103,8 +103,12 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
 </div>
 
 <div id="logPanel" class="panel hidden">
-  <div class="panel-title">Pipeline Log</div>
-  <div class="log" id="log"></div>
+  <details>
+    <summary style="cursor: pointer; font-size: 13px; font-weight: 600; color: var(--accent); padding: 12px 0;">
+      🔧 Technical Details (optional)
+    </summary>
+    <div class="log" id="log"></div>
+  </details>
 </div>
 
 <details id="dictPanel" class="panel">
@@ -345,7 +349,7 @@ async function extractPDF(buffer) {
     log('Using LATTICE mode (lines detected)', 'ok');
     rows = latticeExtract(allTextItems, allLines, numPages);
   } else {
-    log('Few lines detected — falling back to TEXT CLUSTERING mode', 'warn');
+    log('Using alternative table detection method...', 'ok');
     rows = textClusterExtract(allTextItems);
   }
 
@@ -885,7 +889,45 @@ function textClusterExtract(textItems) {
       const text = rowItems.map(t => t.str).join(' ').trim();
       if (!text) continue;
 
-      rows.push({ type: 'data', cells: [text], page: +page });
+      // Check if this line has pipe separators (table data)
+      if (text.includes('|')) {
+        const parts = text.split('|').map(p => p.trim()).filter(p => p);
+        if (parts.length >= 2) {
+          // Smart correction: preserve numbers but correct ALL Vietnamese words
+          const correctedCells = parts.map((p, idx) => {
+            // Pure numbers - keep as-is
+            if (/^\d+[\.,]?\d*$/.test(p)) return p;
+
+            // Units (short uppercase) - keep as-is
+            if (/^[A-Z]{1,4}\d*$/.test(p) || p.length <= 3 && /^[A-Z]+$/.test(p)) return p;
+
+            // Material column (usually col 1 or 2) with STT prefix: "1. Xi mang Holcim"
+            // Split and correct Vietnamese words, preserve brand names
+            const sttMatch = p.match(/^(\d+\.)\s+(.+)$/);
+            if (sttMatch) {
+              const stt = sttMatch[1];
+              const rest = sttMatch[2];
+              // Correct each word individually, preserving capitalized proper nouns
+              const words = rest.split(/\s+/);
+              const corrected = words.map(word => {
+                // If word is all-caps or Title Case and >5 chars, likely a brand name
+                if (/^[A-Z][a-z]+$/.test(word) && word.length > 5) return word;
+                // Otherwise correct Vietnamese
+                return correctVietnameseText(word);
+              }).join(' ');
+              return stt + ' ' + corrected;
+            }
+
+            // All other text - apply full Vietnamese correction
+            return correctVietnameseText(p);
+          });
+          rows.push({ type: 'data', cells: correctedCells, page: +page });
+          continue;
+        }
+      }
+
+      // Otherwise single column with full correction
+      rows.push({ type: 'data', cells: [correctVietnameseText(text)], page: +page });
     }
   }
   return rows;
@@ -1104,7 +1146,8 @@ function spatialExtract(filteredLines, filteredWords) {
   log('  Column detection: ' + numCols + ' columns (spatial)');
 
   if (numCols < 2) {
-    return filteredLines.map(function(l) { return { type: 'data', cells: [l.text], page: l.page }; });
+    log('  Column detection failed, falling back to pipe-based splitting...', 'warn');
+    return pipeBasedExtract(filteredLines);
   }
 
   var rows = [];
