@@ -7,6 +7,9 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+<script src="vn_syllable_corrector.js"></script>
+<script src="vietnamese_text_fixes_v2.js"></script>
+<script src="confidence-tracking.js"></script>
 <style>
 :root { --bg: #0f172a; --surface: #1e293b; --border: #334155; --accent: #3b82f6; --accent2: #10b981; --text: #e2e8f0; --dim: #94a3b8; --warn: #f59e0b; }
 * { margin:0; padding:0; box-sizing:border-box; }
@@ -41,10 +44,19 @@ h1 span { color: var(--accent); }
 .table-wrap { max-height: 400px; overflow: auto; border-radius: 6px; border: 1px solid var(--border); }
 table { border-collapse: collapse; width: 100%; font-size: 11px; }
 th { background: var(--accent); color: white; padding: 6px 8px; position: sticky; top: 0; text-align: left; font-weight: 600; }
-td { padding: 4px 8px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+td { padding: 4px 8px; border-bottom: 1px solid var(--border); white-space: nowrap; position: relative; }
 tr:hover td { background: rgba(59,130,246,0.08); }
 td.num { text-align: right; font-variant-numeric: tabular-nums; }
 tr.section td { background: rgba(59,130,246,0.15); font-weight: 600; color: var(--accent); }
+td.editable { cursor: text; }
+td.editable:hover { outline: 1px solid var(--accent); }
+td.edited { font-style: italic; }
+.cell-attribution { font-size: 10px; background: var(--surface); border: 1px solid var(--border); border-radius: 4px; padding: 8px; max-width: 300px; }
+.attr-row { margin: 4px 0; }
+.attr-correction { color: var(--accent2); }
+.attr-unchanged { color: var(--dim); }
+.attr-confidence { color: var(--accent); }
+.attr-note { color: var(--warn); font-size: 9px; margin-top: 6px; }
 
 .actions { display: flex; gap: 12px; margin-top: 16px; }
 button { background: var(--accent); color: white; border: none; padding: 10px 24px; border-radius: 6px; font-family: inherit; font-size: 13px; cursor: pointer; font-weight: 600; }
@@ -61,7 +73,7 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
 <body>
 
 <h1>BOQ PDF → <span>Excel</span></h1>
-<p class="subtitle">Client-side table extraction with OCR · <em>no server</em> · pdf.js + Tesseract.js + SheetJS</p>
+<p class="subtitle">Client-side table extraction with OCR · <em>no server</em> · pdf.js + Tesseract.js (tessdata_best) + Dictionary + Syllable Model + SheetJS</p>
 
 <div id="dropzone">
   <input type="file" id="fileInput" accept=".pdf">
@@ -82,12 +94,39 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
   <div class="log" id="log"></div>
 </div>
 
+<div id="dictPanel" class="panel">
+  <div class="panel-title">Custom Dictionary (375 default + <span id="customCount">0</span> custom)</div>
+  <div style="display: flex; gap: 12px; margin-bottom: 12px;">
+    <input type="text" id="customWord" placeholder="Add Vietnamese word (e.g., đào, công, xây)"
+           onkeypress="if(event.key==='Enter') addCustomWord()"
+           style="flex: 1; background: var(--bg); border: 1px solid var(--border); color: var(--text); padding: 8px 12px; border-radius: 6px; font-family: inherit; font-size: 13px;">
+    <button onclick="addCustomWord()" style="padding: 8px 16px;">Add Word</button>
+    <button onclick="clearCustomWords()" class="secondary" style="padding: 8px 16px;">Clear All</button>
+  </div>
+  <div style="font-size: 11px; color: var(--dim); margin-bottom: 8px;">
+    Custom words: <span id="customWordsList" style="color: var(--text);">none</span>
+  </div>
+  <details style="font-size: 11px; color: var(--dim); margin-top: 8px;">
+    <summary style="cursor: pointer; color: var(--accent);">Export/Import Custom Dictionary</summary>
+    <div style="margin-top: 8px; display: flex; gap: 8px;">
+      <button onclick="exportCustomDict()" style="padding: 6px 12px; font-size: 11px;">Export JSON</button>
+      <button onclick="importCustomDict()" style="padding: 6px 12px; font-size: 11px;">Import JSON</button>
+    </div>
+  </details>
+</div>
+
+<div id="reviewPanel" class="panel hidden">
+  <div class="panel-title">Confidence Review</div>
+  <div style="font-size: 12px; color: var(--dim); line-height: 1.6;">
+    <div id="reviewStats">Analyzing confidence levels...</div>
+  </div>
+</div>
+
 <div id="previewPanel" class="panel hidden">
-  <div class="panel-title">Table Preview <span id="previewCount"></span></div>
+  <div class="panel-title">Table Preview <span id="previewCount"></span> · <span style="color:var(--dim);font-size:10px">Click cells to edit</span></div>
   <div class="table-wrap" id="tableWrap"></div>
   <div class="actions">
-    <button id="dlXlsx" class="secondary" disabled>Download .xlsx</button>
-    <button id="dlCsv" disabled>Download .csv</button>
+    <button id="dlXlsx" class="secondary" disabled>Download Excel (.xlsx)</button>
   </div>
 </div>
 
@@ -104,6 +143,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc =
 // ── State ──
 let extractedRows = [];
 let tesseractWorker = null;
+let syllableCorrector = null;
 
 // ── UI Refs ──
 const $ = id => document.getElementById(id);
@@ -183,9 +223,14 @@ async function extractPDF(buffer) {
     } else {
       // Image-based page: OCR
       if (!tesseractWorker) {
-        log('Initializing Tesseract OCR (Vietnamese)...', 'warn');
+        log('Initializing Tesseract OCR (Vietnamese tessdata_best)...', 'warn');
         tesseractWorker = await initTesseract();
         log('Tesseract ready', 'ok');
+      }
+
+      if (!syllableCorrector) {
+        log('Loading n-gram model...', 'warn');
+        syllableCorrector = await initSyllableCorrector();
       }
 
       const canvas = await renderPageToCanvas(page, OCR_SCALE);
@@ -250,9 +295,13 @@ async function extractPDF(buffer) {
 
 // ── Tesseract OCR Functions ──
 async function initTesseract() {
-  const worker = await Tesseract.createWorker('vie+eng', 1, {
+  const worker = await Tesseract.createWorker('vie', 1, {
+    langPath: '/tessdata_best',  // Use tessdata_best models (higher accuracy)
+    gzip: false,  // tessdata_best files are not gzipped
     logger: m => {
-      if (m.status === 'recognizing text') {
+      if (m.status === 'loading language traineddata') {
+        log(`Loading tessdata_best Vietnamese model...`, 'warn');
+      } else if (m.status === 'recognizing text') {
         // Silent progress to avoid console spam
       }
     }
@@ -266,6 +315,17 @@ async function initTesseract() {
   });
 
   return worker;
+}
+
+async function initSyllableCorrector() {
+  const corrector = new VietnameseSyllableCorrector();
+  const loaded = await corrector.loadModel('vn_syllable_model.json');
+  if (loaded) {
+    log('Syllable language model loaded successfully', 'ok');
+  } else {
+    log('Warning: Syllable model failed to load, using dictionary only', 'warn');
+  }
+  return corrector;
 }
 
 async function renderPageToCanvas(page, scale) {
@@ -321,6 +381,283 @@ async function ocrPage(canvas, pageNum) {
     }));
 
   return { words, lines };
+}
+
+// ── Vietnamese Dictionary & Spell Correction ──
+const DEFAULT_VIETNAMESE_DICT = `
+và các của có trong không được này để là cho với một khi như đã từ về sau theo
+tại nên đến nếu thì sẽ bị vì hay nhưng lại chỉ còn vào ra ngoài trên dưới giữa
+bên cạnh gần xa đây đó những người thời gian năm tháng ngày tuần kỳ hàng
+cũng đều phải nữa thêm khác cùng nhau mình ta anh em ông bà chị
+số lần lượt loại hình dạng màu sắc chất liệu vật chất liệu phẩm
+điểm yếu điều khoản quan trọng tố chính phụ thêm bớt tăng giảm
+đào phá phui mương ống bằng thủ công máy đất cấp đấp cát đầm chặt nền nén ép
+bê tông xi măng vữa gạch đá sỏi kết cấu mặt đường nhựa lớp ván khuôn đổ phụ tùng thép
+lắp đặt nước van khuỷu manchon bù nối khóa công việc khối lượng đơn giá thành tiền tổng
+mô tả đơn vị tính mét vuông khối kilogram tấn trăm ngàn triệu tỷ đồng viên chiếc cái
+tháo dỡ xây dựng cải tạo thay thế sửa chữa gia cố trải rải rót chuyển vận đổ bơm
+biểu giá hợp đồng gói thầu dự án thi công vật tư thiết bị nhân cộng phần mục tiểu
+xúc đấp đắp lèn lắp ghép ráp cốt pha thép trát tô trét quét sơn ốp lát dán
+tuyến đoạn trạm trung tâm khu vực địa phương phường quận huyện tỉnh thành phố
+điện chiếu sáng cấp điện hạ thế trung thế cao thế động lực điện dân dụng
+điện lực điện năng điện công suất điện áp điện trở dây dẫn cáp điện đường dây
+theo tính toán kế hoạch thi thể hiện thực hiện hoàn thành kết quả
+cao thấp rộng hẹp dài ngắn sâu nông dày mỏng lớn nhỏ to nhỏ
+tốt xấu đẹp tệ nhanh chậm mạnh yếu mới cũ mất còn đủ thiếu đầy
+đúng sai chuẩn chính xác gần đúng khoảng chừng ước tính dự kiến
+trước sau trái phải giữa bên trong ngoài đông tây nam bắc
+một hai ba bốn năm sáu bảy tám chín mười mười một mười hai mười lăm hai mươi
+ba mươi bốn mươi năm mươi sáu mươi bảy mươi tám mươi chín mươi trăm nghìn
+centimet milimét kilomét tấn lít vuông khối mét
+phá bỏ dỡ bỏ phá hủy khoan khoét cắt xén bẻ gãy đập vỡ
+xây nề lên tường vách trần nền móng cột dầm sàn mái
+cửa cổng lan can tay vịn bậc thang bậc cấp nấc thềm
+điện nước thoát cống rãnh mương kênh hố giếng bể bồn
+ren ống thẳng ống cong ống nối ống tê ống chữ ống chữ nối tê
+khớp nối đầu nối bích mặt bích ống góc ống giảm đầu giảm co
+van khóa van bi van bướm van cầu van công van một van chiều van chặn
+đồng hồ đồng hồ đo đồng hồ nước đồng hồ điện công tơ điện
+sơn nước sơn dầu sơn véc véc ni keo dán keo chà keo trộn
+cát vàng cát trắng cát xây cát đổ đá dăm đá mi đá hộc sỏi rải
+thép tròn thép hình thép chữ thép góc thép ray thép chữ thép vuông
+gạch đỏ gạch ống gạch block gạch không nung đá ốp đá lát
+`.trim().split(/\s+/);
+
+// Load custom words from localStorage
+function loadCustomWords() {
+  try {
+    const stored = localStorage.getItem('vietocr_custom_dict');
+    return stored ? JSON.parse(stored) : [];
+  } catch (e) {
+    console.error('Failed to load custom dictionary:', e);
+    return [];
+  }
+}
+
+// Save custom words to localStorage
+function saveCustomWords(words) {
+  try {
+    localStorage.setItem('vietocr_custom_dict', JSON.stringify(words));
+  } catch (e) {
+    console.error('Failed to save custom dictionary:', e);
+  }
+}
+
+// Build combined dictionary (default + custom)
+function buildDictionary() {
+  const customWords = loadCustomWords();
+  const allWords = [...DEFAULT_VIETNAMESE_DICT, ...customWords];
+  return new Set(allWords.map(w => w.toLowerCase()));
+}
+
+// Initialize dictionary
+let VIETNAMESE_DICT = buildDictionary();
+
+// Update UI with custom word count
+function updateCustomWordsUI() {
+  const customWords = loadCustomWords();
+  document.getElementById('customCount').textContent = customWords.length;
+  document.getElementById('customWordsList').textContent =
+    customWords.length > 0 ? customWords.join(', ') : 'none';
+}
+
+// Add custom word
+function addCustomWord() {
+  const input = document.getElementById('customWord');
+  const word = input.value.trim().toLowerCase();
+
+  if (!word) {
+    alert('Please enter a word');
+    return;
+  }
+
+  const customWords = loadCustomWords();
+
+  // Check if already exists
+  if (customWords.includes(word) || DEFAULT_VIETNAMESE_DICT.includes(word)) {
+    alert('Word already in dictionary');
+    input.value = '';
+    return;
+  }
+
+  // Add word
+  customWords.push(word);
+  saveCustomWords(customWords);
+
+  // Rebuild dictionary
+  VIETNAMESE_DICT = buildDictionary();
+
+  // Update UI
+  updateCustomWordsUI();
+  input.value = '';
+
+  log(`Added custom word: ${word}`, 'ok');
+}
+
+// Clear all custom words
+function clearCustomWords() {
+  if (!confirm('Clear all custom words? This cannot be undone.')) {
+    return;
+  }
+
+  saveCustomWords([]);
+  VIETNAMESE_DICT = buildDictionary();
+  updateCustomWordsUI();
+  log('Custom dictionary cleared', 'warn');
+}
+
+// Export custom dictionary
+function exportCustomDict() {
+  const customWords = loadCustomWords();
+  const json = JSON.stringify(customWords, null, 2);
+  const blob = new Blob([json], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'vietocr-custom-dictionary.json';
+  a.click();
+  URL.revokeObjectURL(url);
+  log('Custom dictionary exported', 'ok');
+}
+
+// Import custom dictionary
+function importCustomDict() {
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = '.json';
+  input.onchange = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        const imported = JSON.parse(event.target.result);
+        if (!Array.isArray(imported)) {
+          alert('Invalid format: expected array of words');
+          return;
+        }
+
+        const customWords = loadCustomWords();
+        const merged = [...new Set([...customWords, ...imported])];
+
+        saveCustomWords(merged);
+        VIETNAMESE_DICT = buildDictionary();
+        updateCustomWordsUI();
+
+        log(`Imported ${imported.length} words (${merged.length - customWords.length} new)`, 'ok');
+      } catch (err) {
+        alert('Failed to import: ' + err.message);
+      }
+    };
+    reader.readAsText(file);
+  };
+  input.click();
+}
+
+function levenshteinDist(a, b) {
+  const m = [], al = a.length, bl = b.length;
+  for (let i = 0; i <= bl; i++) m[i] = [i];
+  for (let j = 0; j <= al; j++) m[0][j] = j;
+  for (let i = 1; i <= bl; i++) {
+    for (let j = 1; j <= al; j++) {
+      m[i][j] = b[i-1] === a[j-1] ? m[i-1][j-1] :
+                Math.min(m[i-1][j-1] + 1, m[i][j-1] + 1, m[i-1][j] + 1);
+    }
+  }
+  return m[bl][al];
+}
+
+function removeDiacritics(str) {
+  return str.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd').replace(/Đ/g, 'D');
+}
+
+function correctWord(word) {
+  const lower = word.toLowerCase();
+  if (VIETNAMESE_DICT.has(lower)) return word;
+
+  const noDiac = removeDiacritics(lower);
+  let best = null, bestDist = 999;
+
+  for (const dictWord of VIETNAMESE_DICT) {
+    // Check diacritic-agnostic match first (common OCR error)
+    if (removeDiacritics(dictWord) === noDiac) {
+      return dictWord;
+    }
+
+    // Levenshtein distance for close matches
+    const dist = levenshteinDist(lower, dictWord);
+    if (dist < bestDist && dist <= 2) {
+      bestDist = dist;
+      best = dictWord;
+    }
+  }
+
+  return best || word;
+}
+
+function correctVietnameseText(text) {
+  // Three-stage correction pipeline:
+
+  // Stage 0: Post-processing (spacing, case normalization)
+  if (typeof postProcessVietnameseText !== 'undefined') {
+    text = postProcessVietnameseText(text);
+  }
+
+  // Stage 1: Dictionary-based correction (fast, simple)
+  let stage1 = text.split(/\s+/).map(w => {
+    const m = w.match(/^([^\wàáảãạâấầẩẫậăắằẳẵặèéẻẽẹêếềểễệìíỉĩịòóỏõọôốồổỗộơớờởỡợùúủũụưứừửữựỳýỷỹỵđ]*)([\wàáảãạâấầẩẫậăắằẳẵặèéẻẽẹêếềểễệìíỉĩịòóỏõọôốồổỗộơớờởỡợùúủũụưứừửữựỳýỷỹỵđ]+)([^\wàáảãạâấầẩẫậăắằẳẵặèéẻẽẹêếềểễệìíỉĩịòóỏõọôốồổỗộơớờởỡợùúủũụưứừửữựỳýỷỹỵđ]*)$/i);
+    if (!m) return w;
+    return m[1] + correctWord(m[2]) + m[3];
+  }).join(' ');
+
+  // Stage 2: Syllable model correction (domain-agnostic)
+  if (syllableCorrector && syllableCorrector.ready) {
+    return syllableCorrector.correctText(stage1);
+  }
+
+  return stage1;
+}
+
+// Helper: Convert string value to cell metadata object
+function createCellMetadata(value, avgOcrConfidence, colIndex) {
+  if (!value || value === '') {
+    return {
+      value: '',
+      original: '',
+      confidence: 0,
+      source: 'empty',
+      correctedBy: null,
+      type: classifyCellType('', colIndex),
+      edited: false
+    };
+  }
+
+  const original = value;
+
+  // Apply corrections using existing pipeline
+  if (typeof correctTextWithMetadata !== 'undefined') {
+    // Use metadata-aware correction if available
+    const meta = correctTextWithMetadata(value, avgOcrConfidence);
+    return {
+      ...meta,
+      type: classifyCellType(meta.value, colIndex),
+      edited: false
+    };
+  } else {
+    // Fallback: use simple correction
+    const corrected = correctVietnameseText(value);
+    const wasCorrected = corrected !== original;
+    return {
+      value: corrected,
+      original: original,
+      confidence: wasCorrected ? 85 : avgOcrConfidence,
+      source: wasCorrected ? 'dictionary' : 'ocr',
+      correctedBy: wasCorrected ? 'BOQ Dictionary' : null,
+      type: classifyCellType(corrected, colIndex),
+      edited: false
+    };
+  }
 }
 
 // ── Line Extraction from pdf.js Operator List ──
@@ -493,11 +830,15 @@ function ocrTableExtract(ocrLines, ocrWords) {
 
   if (pipeRatio > 0.25) {
     log('Using PIPE-BASED parsing (table borders detected in OCR)', 'ok');
+    const correctionType = syllableCorrector && syllableCorrector.ready ? 'dict + syllable' : 'dict only';
+    log(`  Applying Vietnamese spell correction (${correctionType})...`, 'ok');
     return pipeBasedExtract(filteredLines);
   }
 
   // Fallback: spatial word-position analysis
   log('Using SPATIAL parsing (word positions)', 'ok');
+  const correctionType2 = syllableCorrector && syllableCorrector.ready ? 'dict + syllable' : 'dict only';
+  log(`  Applying Vietnamese spell correction (${correctionType2})...`, 'ok');
   const filteredWords = ocrWords.filter(w => {
     const ph = pageHeights[w.page] || 800;
     return w.y > ph * 0.05 && w.y1 < ph * 0.95;
@@ -521,7 +862,7 @@ function pipeBasedExtract(ocrLines) {
 
     if (parts.length === 0) continue;
 
-    rawRows.push({ parts: parts, page: line.page, text: text });
+    rawRows.push({ parts: parts, page: line.page, text: text, confidence: line.confidence });
   }
 
   var TARGET_COLS = 6;
@@ -529,10 +870,16 @@ function pipeBasedExtract(ocrLines) {
 
   for (var ri = 0; ri < rawRows.length; ri++) {
     var raw = rawRows[ri];
-    var cells = assignToColumns(raw.parts);
-    if (!cells) continue;
+    var cellStrings = assignToColumns(raw.parts);
+    if (!cellStrings) continue;
 
-    var rowType = classifyRow(cells, TARGET_COLS);
+    // Convert string cells to metadata objects
+    var cells = cellStrings.map(function(val, colIdx) {
+      return createCellMetadata(val, raw.confidence || 85, colIdx);
+    });
+
+    var cellValues = cells.map(c => c.value);
+    var rowType = classifyRow(cellValues, TARGET_COLS);
     if (rowType === 'header') continue;
     rows.push({ type: rowType, cells: cells, page: raw.page });
   }
@@ -605,7 +952,7 @@ function assignToColumns(parts) {
     }
 
     cells[0] = stt;
-    cells[1] = descParts.join(' ').trim();
+    cells[1] = correctVietnameseText(descParts.join(' ').trim());
     cells[2] = unit;
 
     // Collect all numbers from remaining parts
@@ -629,7 +976,7 @@ function assignToColumns(parts) {
     // Check for trailing numbers pattern: "description ... num num num"
     var trailingNums = fullText.match(/^(.+?)\s+([\d.,]+)\s+([\d.,]+)\s+([\d.,]+)\s*$/);
     if (trailingNums) {
-      cells[1] = trailingNums[1];
+      cells[1] = correctVietnameseText(trailingNums[1]);
       cells[3] = trailingNums[2]; cells[4] = trailingNums[3]; cells[5] = trailingNums[4];
     } else if (parts.length >= 3) {
       // Multiple pipe parts but no unit — last parts might be numbers
@@ -637,26 +984,26 @@ function assignToColumns(parts) {
       var numericLast = lastParts.filter(function(p) { return /^[\d.,\-—()\s]+$/.test(p); }).length;
       if (numericLast >= 2) {
         var descEnd = parts.length - numericLast;
-        cells[1] = parts.slice(0, descEnd).join(' ').trim();
+        cells[1] = correctVietnameseText(parts.slice(0, descEnd).join(' ').trim());
         var numArr = parts.slice(descEnd);
         for (var k = 0; k < numArr.length && k < 3; k++) {
           cells[3 + k] = numArr[k].replace(/[()]/g, '').trim();
         }
       } else {
-        cells[1] = fullText;
+        cells[1] = correctVietnameseText(fullText);
       }
     } else {
       // Pure text row — extract STT if present
       var sttMatch2 = fullText.match(/^[\(\[]?(\d{1,3})[\)\]]?\s+(.*)/);
-      if (sttMatch2) { cells[0] = sttMatch2[1]; cells[1] = sttMatch2[2]; }
-      else { cells[1] = fullText; }
+      if (sttMatch2) { cells[0] = sttMatch2[1]; cells[1] = correctVietnameseText(sttMatch2[2]); }
+      else { cells[1] = correctVietnameseText(fullText); }
     }
   }
 
   // Final pass: extract STT from description if not already set
   if (!cells[0] && cells[1]) {
     var sttFinal = cells[1].match(/^[\(\[]?(\d{1,3})[\)\]]?\s+(.*)/);
-    if (sttFinal) { cells[0] = sttFinal[1]; cells[1] = sttFinal[2]; }
+    if (sttFinal) { cells[0] = sttFinal[1]; cells[1] = correctVietnameseText(sttFinal[2]); }
   }
 
   // Clean OCR artifacts in numeric columns
@@ -682,24 +1029,34 @@ function spatialExtract(filteredLines, filteredWords) {
   var rows = [];
   for (var li = 0; li < filteredLines.length; li++) {
     var line = filteredLines[li];
-    var cells = new Array(numCols).fill('');
+    var cellWords = new Array(numCols).fill(null).map(() => []);
 
     for (var wi = 0; wi < line.words.length; wi++) {
       var word = line.words[wi];
       var cx = (word.x + word.x1) / 2;
       var colIdx = findColumn(cx, colBoundaries);
       if (colIdx >= 0 && colIdx < numCols) {
-        cells[colIdx] = cells[colIdx] ? cells[colIdx] + ' ' + word.text : word.text;
+        cellWords[colIdx].push(word);
       }
     }
 
-    if (cells.every(function(c) { return c === ''; })) continue;
+    // Build cells with metadata
+    var cells = cellWords.map(function(words, colIdx) {
+      return buildCellWithMetadata(words, colIdx);
+    });
 
+    if (cells.every(function(c) { return c.value === ''; })) continue;
+
+    // Clean OCR artifacts in numeric columns
     for (var c = 3; c < numCols; c++) {
-      if (cells[c]) cells[c] = cells[c].replace(/O/g, '0').replace(/l/g, '1').replace(/\s/g, '');
+      if (cells[c].value) {
+        cells[c].value = cells[c].value.replace(/O/g, '0').replace(/l/g, '1').replace(/\s/g, '');
+      }
     }
 
-    rows.push({ type: classifyRow(cells, numCols), cells: cells, page: line.page });
+    // For classifyRow, extract values
+    var cellValues = cells.map(c => c.value);
+    rows.push({ type: classifyRow(cellValues, numCols), cells: cells, page: line.page });
   }
 
   return mergeMultiLineCells(rows, numCols);
@@ -823,11 +1180,14 @@ function mergeMultiLineCells(rows, numCols) {
     var row = rows[i];
     if (row.type === 'header') continue;
 
-    var stt = (row.cells[0] || '').trim();
-    var desc = row.cells[1] || '';
+    // Handle both string cells (legacy) and object cells (metadata)
+    var getVal = function(cell) { return typeof cell === 'string' ? cell : (cell ? cell.value : ''); };
+
+    var stt = getVal(row.cells[0]).trim();
+    var desc = getVal(row.cells[1]);
     var hasSTT = /^\d{1,3}$/.test(stt);
-    var hasUnit = row.cells[2] && row.cells[2].trim();
-    var hasNumeric = row.cells.slice(3).some(function(c) { return c && /\d/.test(c); });
+    var hasUnit = row.cells[2] && getVal(row.cells[2]).trim();
+    var hasNumeric = row.cells.slice(3).some(function(c) { return c && /\d/.test(getVal(c)); });
 
     // A continuation line: no STT, no unit, no numeric data, short desc, and previous row exists
     var isContLine = !hasSTT && !hasUnit && !hasNumeric && desc.length < 120;
@@ -838,9 +1198,14 @@ function mergeMultiLineCells(rows, numCols) {
       var prev = merged[merged.length - 1];
       // Only merge if it looks like a genuine continuation (same page, desc is reasonable)
       if (row.page === prev.page && desc.length < 80) {
-        prev.cells[1] = (prev.cells[1] + ' ' + desc).trim();
+        // Merge description cells
+        if (typeof prev.cells[1] === 'object' && typeof row.cells[1] === 'object') {
+          prev.cells[1].value = (prev.cells[1].value + ' ' + row.cells[1].value).trim();
+        } else {
+          prev.cells[1] = (getVal(prev.cells[1]) + ' ' + desc).trim();
+        }
         for (var c = 2; c < numCols; c++) {
-          if (row.cells[c] && !prev.cells[c]) prev.cells[c] = row.cells[c];
+          if (row.cells[c] && !getVal(prev.cells[c])) prev.cells[c] = row.cells[c];
         }
         continue;
       }
@@ -894,6 +1259,40 @@ function renderPreview(rows) {
   $('previewPanel').classList.remove('hidden');
   $('previewCount').textContent = `(${rows.length} rows)`;
 
+  // Calculate confidence statistics
+  let totalCells = 0, highConf = 0, medConf = 0, lowConf = 0;
+  let dictCorrections = 0, syllableCorrections = 0, userEdits = 0;
+
+  rows.forEach(row => {
+    row.cells.forEach(cell => {
+      if (typeof cell === 'object' && cell !== null && cell.value) {
+        totalCells++;
+        if (cell.confidence >= 90) highConf++;
+        else if (cell.confidence >= 70) medConf++;
+        else lowConf++;
+
+        if (cell.source === 'dictionary') dictCorrections++;
+        else if (cell.source === 'syllable') syllableCorrections++;
+        if (cell.edited) userEdits++;
+      }
+    });
+  });
+
+  // Update review panel
+  if (totalCells > 0) {
+    $('reviewPanel').classList.remove('hidden');
+    let reviewHtml = `<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-top:8px;">`;
+    reviewHtml += `<div><strong style="color:var(--text)">${highConf}</strong> <span style="color:var(--dim)">high confidence</span></div>`;
+    reviewHtml += `<div><strong style="color:var(--warn)">${medConf}</strong> <span style="color:var(--dim)">need review</span></div>`;
+    reviewHtml += `<div><strong style="color:#ef4444">${lowConf}</strong> <span style="color:var(--dim)">low confidence</span></div>`;
+    reviewHtml += `</div><div style="margin-top:12px;font-size:11px;color:var(--dim);">`;
+    reviewHtml += `Corrections: <strong style="color:var(--accent2)">${dictCorrections} dictionary</strong> · `;
+    reviewHtml += `<strong style="color:var(--accent2)">${syllableCorrections} syllable model</strong>`;
+    if (userEdits > 0) reviewHtml += ` · <strong style="color:var(--accent)">${userEdits} manual edits</strong>`;
+    reviewHtml += `</div>`;
+    $('reviewStats').innerHTML = reviewHtml;
+  }
+
   // Determine max columns
   const maxCols = Math.max(...rows.map(r => r.cells.length), 1);
   const colHeaders = maxCols === 6
@@ -908,12 +1307,35 @@ function renderPreview(rows) {
   const previewRows = rows.slice(0, 200);
   previewRows.forEach((row, idx) => {
     const cls = row.type === 'section' ? ' class="section"' : '';
-    html += `<tr${cls}>`;
+    html += `<tr${cls} data-row="${idx}">`;
     html += `<td style="color:var(--dim)">${idx + 1}</td>`;
     for (let c = 0; c < maxCols; c++) {
-      const val = (row.cells[c] || '');
+      const cell = row.cells[c];
+      const isMetadata = typeof cell === 'object' && cell !== null;
+      const val = isMetadata ? cell.value : (cell || '');
       const isNum = val.match(/^[\d.,]+$/) && c >= 3;
-      html += `<td${isNum ? ' class="num"' : ''}>${escHtml(val)}</td>`;
+
+      let style = '';
+      let classes = isNum ? 'num editable' : 'editable';
+      let title = '';
+
+      if (isMetadata) {
+        // Apply minimal color coding (only for what needs attention)
+        if (cell.confidence < 90) {
+          const bgColor = getConfidenceColor(cell.confidence);
+          const border = getConfidenceBorder(cell.confidence);
+          style = `background:${bgColor};border:${border};`;
+        }
+
+        // Build tooltip
+        title = buildAttributionTooltip(cell).replace(/"/g, '&quot;');
+
+        if (cell.edited) {
+          classes += ' edited';
+        }
+      }
+
+      html += `<td class="${classes}" data-row="${idx}" data-col="${c}" style="${style}" title="${title}">${escHtml(val)}</td>`;
     }
     html += '</tr>';
   });
@@ -923,12 +1345,60 @@ function renderPreview(rows) {
   html += '</tbody></table>';
   $('tableWrap').innerHTML = html;
 
+  // Add click handlers for inline editing
+  document.querySelectorAll('td.editable').forEach(td => {
+    td.addEventListener('click', function() {
+      makeEditable(this);
+    });
+  });
+
   $('dlXlsx').disabled = false;
-  $('dlCsv').disabled = false;
 }
 
 function escHtml(s) {
   return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+// ── Inline Cell Editing ──
+function makeEditable(td) {
+  const rowIdx = parseInt(td.dataset.row);
+  const colIdx = parseInt(td.dataset.col);
+  const cell = extractedRows[rowIdx].cells[colIdx];
+  const currentValue = typeof cell === 'object' ? cell.value : (cell || '');
+
+  // Create input
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.value = currentValue;
+  input.style.cssText = 'width:100%;background:var(--bg);color:var(--text);border:2px solid var(--accent);padding:4px;font:inherit;';
+
+  // Replace cell content with input
+  td.innerHTML = '';
+  td.appendChild(input);
+  input.focus();
+  input.select();
+
+  // Save on blur or Enter
+  const save = () => {
+    const newValue = input.value.trim();
+    if (typeof cell === 'object') {
+      if (newValue !== cell.value) {
+        cell.value = newValue;
+        cell.edited = true;
+        cell.source = 'user';
+        cell.correctedBy = 'Manual Edit';
+      }
+    } else {
+      extractedRows[rowIdx].cells[colIdx] = newValue;
+    }
+    renderPreview(extractedRows);
+  };
+
+  input.addEventListener('blur', save);
+  input.addEventListener('keydown', e => {
+    if (e.key === 'Enter') save();
+    if (e.key === 'Escape') renderPreview(extractedRows);
+  });
 }
 
 // ── Export: XLSX ──
@@ -943,7 +1413,10 @@ $('dlXlsx').addEventListener('click', () => {
   for (const row of extractedRows) {
     const cells = [];
     for (let c = 0; c < maxCols; c++) {
-      let val = row.cells[c] || '';
+      const cell = row.cells[c];
+      // Extract value from metadata object or use string directly
+      let val = typeof cell === 'object' ? (cell ? cell.value : '') : (cell || '');
+
       // Try parsing numbers for numeric columns
       if (c >= 3 && val) {
         const parsed = parseVnNumber(val);
@@ -969,7 +1442,8 @@ $('dlXlsx').addEventListener('click', () => {
   log('XLSX exported!', 'ok');
 });
 
-// ── Export: CSV ──
+// ── Export: CSV ── (Removed - Excel only)
+/*
 $('dlCsv').addEventListener('click', () => {
   if (extractedRows.length === 0) return;
   const maxCols = Math.max(...extractedRows.map(r => r.cells.length));
@@ -987,6 +1461,7 @@ $('dlCsv').addEventListener('click', () => {
   downloadBlob(csv, 'bieu_gia_extracted.csv', 'text/csv;charset=utf-8;');
   log('CSV exported!', 'ok');
 });
+*/
 
 function downloadBlob(content, filename, mime) {
   const blob = new Blob(['\ufeff' + content], { type: mime });
@@ -1030,7 +1505,9 @@ function parseVnNumber(s) {
   return isNaN(num) ? null : num;
 }
 
-// ── Init message ──
+// ── Init ──
+updateCustomWordsUI();  // Load custom dictionary UI on page load
+
 log('Ready. Drop a BOQ PDF to begin.');
 log('Pipeline: pdf.js (text + vectors) → Tesseract.js OCR fallback → table extraction → SheetJS export');
 log('No data leaves your browser.\n');
