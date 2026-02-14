@@ -6,6 +6,17 @@
 // Enhanced correction function that returns metadata
 function correctWordWithMetadata(word, ocrConfidence = 85) {
   const original = word;
+
+  // DISABLED: Return original OCR without any corrections
+  return {
+    value: original,
+    original: original,
+    confidence: ocrConfidence,
+    source: 'ocr',
+    correctedBy: null
+  };
+
+  /* DISABLED - All correction stages
   const lower = word.toLowerCase();
 
   // Stage 1: Check if already in dictionary (exact match)
@@ -54,6 +65,7 @@ function correctWordWithMetadata(word, ocrConfidence = 85) {
   }
 
   // No correction found - return original with OCR confidence
+  */
   return {
     value: word,
     original: original,
@@ -67,83 +79,17 @@ function correctWordWithMetadata(word, ocrConfidence = 85) {
 async function correctTextWithMetadata(text, avgOcrConfidence = 85) {
   const original = text;
 
-  // Stage 0: Post-processing
-  if (typeof postProcessVietnameseText !== 'undefined') {
-    text = postProcessVietnameseText(text);
-  }
-
-  // Stage 1: Try VPS API first (best accuracy)
-  if (typeof restoreVietnameseVPS !== 'undefined') {
-    const vpsResult = await restoreVietnameseVPS(text);
-    if (vpsResult !== null && vpsResult !== text) {
-      return {
-        value: vpsResult,
-        original: original,
-        confidence: 94, // VPS API accuracy
-        source: 'vps',
-        correctedBy: 'VPS Transformer Model (94% accuracy)',
-        dictionaryCorrected: false,
-        syllableCorrected: false,
-        vpsApiCorrected: true
-      };
-    }
-  }
-
-  // Stage 2: Dictionary-based correction with metadata
-  const words = text.split(/\s+/);
-  const correctedWords = words.map(w => {
-    const m = w.match(/^([^\wàáảãạâấầẩẫậăắằẳẵặèéẻẽẹêếềểễệìíỉĩịòóỏõọôốồổỗộơớờởỡợùúủũụưứừửữựỳýỷỹỵđ]*)([\wàáảãạâấầẩẫậăắằẳẵặèéẻẽẹêếềểễệìíỉĩịòóỏõọôốồổỗộơớờởỡợùúủũụưứừửữựỳýỷỹỵđ]+)([^\wàáảãạâấầẩẫậăắằẳẵặèéẻẽẹêếềểễệìíỉĩịòóỏõọôốồổỗộơớờởỡợùúủũụưứừửữựỳýỷỹỵđ]*)$/i);
-    if (!m) return { value: w, source: 'ocr', confidence: avgOcrConfidence };
-
-    const meta = correctWordWithMetadata(m[2], avgOcrConfidence);
-    return {
-      value: m[1] + meta.value + m[3],
-      original: w,
-      confidence: meta.confidence,
-      source: meta.source,
-      correctedBy: meta.correctedBy
-    };
-  });
-
-  const stage2Text = correctedWords.map(w => w.value).join(' ');
-  const stage2Confidence = Math.round(
-    correctedWords.reduce((sum, w) => sum + w.confidence, 0) / correctedWords.length
-  );
-
-  // Stage 3: Syllable model correction (if loaded)
-  if (syllableCorrector && syllableCorrector.ready) {
-    try {
-      // FIX Bug #8: Wrap external library call in try-catch
-      const stage3Text = syllableCorrector.correctText(stage2Text);
-
-      // Check if syllable model made changes
-      if (stage3Text !== stage2Text) {
-        return {
-          value: stage3Text,
-          original: original,
-          confidence: Math.min(stage2Confidence + 5, 95), // Slight boost
-          source: 'syllable',
-          correctedBy: 'Syllable Model (Vietnamese news corpus)',
-          dictionaryCorrected: stage2Text !== text,
-          syllableCorrected: true
-        };
-      }
-    } catch (error) {
-      console.error('Syllable corrector failed:', error);
-      // Continue to return Stage 2 result
-    }
-  }
-
-  // Return Stage 2 result
-  const dictCorrected = stage2Text !== original;
+  // DISABLED: Return original OCR without any corrections
+  // User wants raw Tesseract output with no diacritic restoration
   return {
-    value: stage2Text,
+    value: original,
     original: original,
-    confidence: stage2Confidence,
-    source: dictCorrected ? 'dictionary' : 'ocr',
-    correctedBy: dictCorrected ? 'BOQ Dictionary' : null,
-    dictionaryCorrected: dictCorrected,
-    syllableCorrected: false
+    confidence: avgOcrConfidence,
+    source: 'ocr',
+    correctedBy: null,
+    dictionaryCorrected: false,
+    syllableCorrected: false,
+    vpsApiCorrected: false
   };
 }
 

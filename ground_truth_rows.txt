@@ -1,0 +1,30 @@
+# Ground Truth Rows - Key Items from sample.pdf
+# For accuracy testing with the Vietnamese OCR app
+# These are manually corrected from raw OCR output
+
+## Document Header
+CỘNG HÒA XÃ HỘI CHỦ NGHĨA VIỆT NAM
+Độc lập - Tự do - Hạnh phúc
+BIỂU GIÁ HỢP ĐỒNG
+
+## Contract Info  
+Đính kèm Hợp đồng số: 3390/HĐXD-CNBT-QLDA ngày 17/11/2025
+Gói thầu: Cung cấp vật tư còn lại và thi công xây dựng công trình
+Thuộc dự án: Cải tạo thay thế tuyến ống cấp nước D100, D150
+
+## Key Table Rows
+
+Row 6: Đào phụi mương ống bằng thủ công Đất cấp | m3 | 6.543
+Row 8: Nền đắp cát, đầm chặt K=0,98 | 100m3 | 0.766  
+Row 9: Vận chuyển đất cấp IIA | 100m3 | 0.932
+Row 18: Gia công, lắp dựng, tháo dỡ ván khuôn | 100m2 | 0.119
+Row 19: Gia công, lắp dựng thép | Tấn | 0.027
+
+## Expected Diacritics
+- CỘNG HÒA XÃ HỘI CHỦ NGHĨA VIỆT NAM
+- Độc lập - Tự do - Hạnh phúc
+- Đào phụi, Mương ống, Đất cấp
+- Nền đắp, Đầm chặt
+- Vận chuyển, Khỏi công trường
+- Gia công, Lắp dựng, Tháo dỡ
+- Ván khuôn, Đổ beton

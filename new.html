@@ -146,6 +146,7 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
   <div class="table-wrap" id="tableWrap"></div>
   <div class="actions">
     <button id="dlXlsx" class="secondary" disabled>Download Excel (.xlsx)</button>
+    <button id="dlDebugJSON" onclick="exportDebugJSON()" disabled style="background: #8b5cf6;">📊 Export Debug Data</button>
   </div>
 </div>
 
@@ -163,6 +164,99 @@ pdfjsLib.GlobalWorkerOptions.workerSrc =
 let extractedRows = [];
 let tesseractWorker = null;
 let tesseractInitializing = false; // SECURITY FIX #4: Prevent race condition
+let currentOCRPage = 0;
+let totalPDFPages = 0;
+
+// ── Debug Data (for bbox visualization) ──
+let debugData = {
+  ocrWords: [],
+  ocrLines: [],
+  pdfMetadata: null
+};
+
+// ── Performance Profiling ──
+let perfTimings = {};
+window.perfStart = (label) => {
+  perfTimings[label] = { start: performance.now() };
+};
+window.perfEnd = (label) => {
+  if (perfTimings[label]) {
+    perfTimings[label].end = performance.now();
+    perfTimings[label].duration = perfTimings[label].end - perfTimings[label].start;
+    console.log(`⏱️ ${label}: ${perfTimings[label].duration.toFixed(0)}ms`);
+  }
+};
+window.getPerfReport = () => {
+  const report = {};
+  for (const [label, timing] of Object.entries(perfTimings)) {
+    report[label] = timing.duration ? `${timing.duration.toFixed(0)}ms` : 'incomplete';
+  }
+  return report;
+};
+
+// Get optimization suggestions
+window.getOptimizationReport = () => {
+  const timings = window.getPerfReport();
+  const report = {
+    currentSettings: {
+      ocrScale: OCR_SCALE,
+      ocrDPI: Math.round(OCR_SCALE * 72),
+      tessdata: 'tessdata_best (highest quality, slowest)',
+      psmMode: 3,
+      oemMode: 1
+    },
+    timings: timings,
+    bottlenecks: [],
+    optimizations: []
+  };
+
+  // Analyze bottlenecks
+  const totalTime = Object.values(perfTimings).reduce((sum, t) => sum + (t.duration || 0), 0);
+  for (const [label, timing] of Object.entries(perfTimings)) {
+    if (timing.duration && timing.duration > 1000) { // >1 second
+      const pct = (timing.duration / totalTime * 100).toFixed(1);
+      report.bottlenecks.push({
+        operation: label,
+        time: `${timing.duration.toFixed(0)}ms`,
+        percentage: `${pct}%`
+      });
+    }
+  }
+
+  // Suggest optimizations
+  if (OCR_SCALE > 200/72) {
+    const speedup = Math.pow(OCR_SCALE / (200/72), 2);
+    report.optimizations.push({
+      option: 'Lower OCR resolution to 200 DPI',
+      change: 'OCR_SCALE = 200/72',
+      speedup: `~${speedup.toFixed(1)}x faster`,
+      tradeoff: '~5-10% accuracy loss'
+    });
+  }
+
+  report.optimizations.push({
+    option: 'Use tessdata_fast instead of tessdata_best',
+    change: 'langPath: "https://cdn.jsdelivr.net/gh/tesseract-ocr/tessdata_fast"',
+    speedup: '~3-4x faster',
+    tradeoff: '~10-15% accuracy loss'
+  });
+
+  report.optimizations.push({
+    option: 'Disable debug image storage',
+    change: 'Comment out: debugData.pageImages.push(imgData)',
+    speedup: 'Saves toDataURL() time + memory',
+    tradeoff: 'No bbox visualization'
+  });
+
+  report.optimizations.push({
+    option: 'Use standard tessdata (balanced)',
+    change: 'langPath: "https://cdn.jsdelivr.net/gh/tesseract-ocr/tessdata"',
+    speedup: '~2x faster than best',
+    tradeoff: '~5% accuracy loss'
+  });
+
+  return report;
+};
 let syllableCorrector = null;
 let processingCancelled = false;
 
@@ -270,7 +364,16 @@ async function handleFile(file) {
 async function extractPDF(buffer) {
   const pdf = await pdfjsLib.getDocument({ data: buffer }).promise;
   const numPages = pdf.numPages;
+  totalPDFPages = numPages; // Set global for fine-grained progress updates
   log(`PDF loaded: ${numPages} pages`, 'ok');
+
+  // Initialize debug data
+  debugData = {
+    ocrWords: [],
+    ocrLines: [],
+    // PDF buffer removed - bbox viz disabled // Store PDF buffer for bbox visualization
+    pdfMetadata: null
+  };
 
   let allTextItems = [];
   let allLines = [];
@@ -289,7 +392,7 @@ async function extractPDF(buffer) {
       return;
     }
 
-    $('pbar').style.width = `${(p / numPages * 80)}%`;
+    // Progress bar now updated by Tesseract logger with fine-grained progress
     $('progressText').textContent = `Processing page ${p} of ${numPages}...`;
     const page = await pdf.getPage(p);
     const vp = page.getViewport({ scale: 1.0 });
@@ -319,8 +422,10 @@ async function extractPDF(buffer) {
       if (!tesseractWorker && !tesseractInitializing) {
         tesseractInitializing = true;
         log('Initializing Tesseract OCR (Vietnamese tessdata_best)...', 'warn');
+        perfStart('Tesseract initialization');
         try {
           tesseractWorker = await initTesseract();
+          perfEnd('Tesseract initialization');
           log('Tesseract ready', 'ok');
         } finally {
           tesseractInitializing = false;
@@ -336,8 +441,16 @@ async function extractPDF(buffer) {
         syllableCorrector = await initSyllableCorrector();
       }
 
+      perfStart(`Page ${p}: renderCanvas`);
       const canvas = await renderPageToCanvas(page, OCR_SCALE);
+      perfEnd(`Page ${p}: renderCanvas`);
+
+      // Bbox visualization now uses PDF buffer directly (no toDataURL needed)
+
+      perfStart(`Page ${p}: OCR`);
+      currentOCRPage = p; // Set for fine-grained progress updates
       const ocrResult = await ocrPage(canvas, p);
+      perfEnd(`Page ${p}: OCR`);
       ocrPageCount++;
 
       const pageWords = ocrResult.words;
@@ -362,13 +475,19 @@ async function extractPDF(buffer) {
   let rows;
   if (allOcrWords.length > 0) {
     log(`OCR total: ${allOcrWords.length} words across ${ocrPageCount} pages`, 'ok');
+    perfStart('Table extraction');
     rows = await ocrTableExtract(allOcrLines, allOcrWords);
+    perfEnd('Table extraction');
   } else if (allLines.length > 20) {
     log('Using LATTICE mode (lines detected)', 'ok');
+    perfStart('Lattice extraction');
     rows = await latticeExtract(allTextItems, allLines, numPages);
+    perfEnd('Lattice extraction');
   } else {
     log('Using alternative table detection method...', 'ok');
+    perfStart('Text cluster extraction');
     rows = await textClusterExtract(allTextItems);
+    perfEnd('Text cluster extraction');
   }
 
   $('pbar').style.width = '95%';
@@ -391,6 +510,21 @@ async function extractPDF(buffer) {
   });
   log(`Extracted ${rows.length} rows (${dataRows} data, ${sectionRows} sections)`, 'ok');
 
+  // Store debug data for visualization
+  debugData = {
+    ocrWords: allOcrWords,
+    ocrLines: allOcrLines,
+    pageImages: [],
+    pdfMetadata: {
+      numPages: numPages,
+      totalWords: totalOcrWords,
+      avgConfidence: avgConf,
+      extractedRows: rows.length,
+      dataRows: dataRows,
+      sectionRows: sectionRows
+    }
+  };
+
   renderPreview(rows);
   $('pbar').style.width = '100%';
   setTimeout(() => $('progressPanel').classList.add('hidden'), 500);
@@ -398,17 +532,58 @@ async function extractPDF(buffer) {
 
 // ── Tesseract OCR Functions ──
 async function initTesseract() {
+  let currentPage = null;
   const worker = await Tesseract.createWorker('vie', 1, {
-    langPath: '/tessdata_best',  // Use tessdata_best models (higher accuracy)
+    langPath: 'https://cdn.jsdelivr.net/gh/tesseract-ocr/tessdata_best',  // Use tessdata_best models (higher accuracy)
     gzip: false,  // tessdata_best files are not gzipped
     logger: m => {
+      // Detailed profiling of Tesseract stages
       if (m.status === 'loading language traineddata') {
+        perfStart('Tesseract: load traineddata');
         log(`Loading tessdata_best Vietnamese model...`, 'warn');
+      } else if (m.status === 'loaded language traineddata') {
+        perfEnd('Tesseract: load traineddata');
+      } else if (m.status === 'initializing tesseract') {
+        perfStart('Tesseract: initialize engine');
+      } else if (m.status === 'initialized tesseract') {
+        perfEnd('Tesseract: initialize engine');
       } else if (m.status === 'recognizing text') {
-        // Silent progress to avoid console spam
+        const pageLabel = `Tesseract: recognize page ${currentPage}`;
+        if (!perfTimings[pageLabel]) {
+          perfStart(pageLabel);
+        }
+        // Update progress bar with fine-grained OCR progress
+        if (m.progress !== undefined && totalPDFPages > 0) {
+          // Calculate overall progress:
+          // - Each page gets 80% / totalPages of the bar
+          // - Within each page, show progress from 0% to 100%
+          const pageWeight = 80 / totalPDFPages;
+          const completedPages = currentOCRPage - 1; // 0-indexed, so page 1 is index 0
+          const baseProgress = (completedPages / totalPDFPages) * 80;
+          const pageProgress = (m.progress * pageWeight);
+          const totalProgress = Math.min(baseProgress + pageProgress, 80);
+
+          $('pbar').style.width = `${totalProgress.toFixed(1)}%`;
+
+          if (m.progress < 1) {
+            const progressPct = (m.progress * 100).toFixed(0);
+            $('progressText').textContent = `Processing page ${currentPage} of ${totalPDFPages}... (${progressPct}%)`;
+          }
+        }
+      } else if (m.status === 'recognized text') {
+        const pageLabel = `Tesseract: recognize page ${currentPage}`;
+        perfEnd(pageLabel);
       }
     }
   });
+
+  // Store reference to update current page
+  worker._currentPage = 0;
+  const originalRecognize = worker.recognize.bind(worker);
+  worker.recognize = async function(...args) {
+    currentPage = worker._currentPage++;
+    return originalRecognize(...args);
+  };
 
   // Configure Tesseract for better Vietnamese recognition
   await worker.setParameters({
@@ -699,31 +874,8 @@ function removeDiacritics(str) {
 }
 
 function correctWord(word) {
-  // Don't correct pure numbers or uppercase unit codes
-  if (/^\d+$/.test(word)) return word;  // Pure digits like "100", "5000"
-  if (/^[A-Z]{2,4}\d*$/.test(word)) return word;  // Uppercase units like "M3", "KG", "TONS" (no 'i' flag!)
-
-  const lower = word.toLowerCase();
-  if (VIETNAMESE_DICT.has(lower)) return word;
-
-  const noDiac = removeDiacritics(lower);
-  let best = null, bestDist = 999;
-
-  for (const dictWord of VIETNAMESE_DICT) {
-    // Check diacritic-agnostic match first (common OCR error)
-    if (removeDiacritics(dictWord) === noDiac) {
-      return dictWord;
-    }
-
-    // Levenshtein distance for close matches
-    const dist = levenshteinDist(lower, dictWord);
-    if (dist < bestDist && dist <= 2) {
-      bestDist = dist;
-      best = dictWord;
-    }
-  }
-
-  return best || word;
+  // DISABLED: Return original word without any corrections
+  return word;
 }
 
 // ── VPS Diacritic Restoration API ──
@@ -759,69 +911,13 @@ function saveDiacriticCache() {
 }
 
 async function restoreVietnameseVPS(text) {
-  if (!text || !text.trim()) return text;
-
-  // Check cache first (FIX Bug #5: normalize internal whitespace)
-  const cacheKey = text.toLowerCase().trim().replace(/\s+/g, ' ');
-  if (diacriticCache[cacheKey]) {
-    return diacriticCache[cacheKey];
-  }
-
-  // Try VPS API if not already determined to be offline
-  if (vpsApiAvailable !== false) {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 2000); // 2s timeout
-
-    try {
-      const response = await fetch(VPS_API_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text: text }),
-        signal: controller.signal
-      });
-
-      if (response.ok) {
-        // FIX Bug #1: Handle JSON parsing errors
-        try {
-          const result = await response.json();
-          if (result.success && result.restored !== undefined && result.restored !== null) {
-            vpsApiAvailable = true;
-
-            // FIX Bug #4: Cache size limit with LRU eviction
-            const MAX_CACHE_SIZE = 1000;
-            if (Object.keys(diacriticCache).length > MAX_CACHE_SIZE) {
-              const entries = Object.entries(diacriticCache);
-              diacriticCache = Object.fromEntries(entries.slice(-800)); // Keep newest 80%
-            }
-
-            // Cache the result
-            diacriticCache[cacheKey] = result.restored;
-            saveDiacriticCache();
-            return result.restored;
-          }
-        } catch (jsonError) {
-          console.error('VPS API returned invalid JSON:', jsonError);
-          // Fall through to fallback
-        }
-      }
-    } catch (error) {
-      // API unavailable - mark as offline and fall through to fallback
-      if (vpsApiAvailable === null) {
-        vpsApiAvailable = false;
-        log('VPS diacritic API not available, using local fallback', 'warn');
-      }
-    } finally {
-      // FIX Bug #2: Always clear timeout
-      clearTimeout(timeoutId);
-    }
-  }
-
-  // Fallback: use local correction
-  return null; // Signal to use fallback
+  // DISABLED: Return null to signal no VPS correction available
+  return null;
 }
 
 async function correctVietnameseText(text) {
-  // Four-stage correction pipeline:
+  // DISABLED: Return original text without any corrections
+  return text;
 
   // Stage 0: Post-processing (spacing, case normalization)
   if (typeof postProcessVietnameseText !== 'undefined') {
@@ -878,29 +974,18 @@ async function createCellMetadata(value, avgOcrConfidence, colIndex) {
 
   const original = value;
 
-  // Apply corrections using existing pipeline
-  if (typeof correctTextWithMetadata !== 'undefined') {
-    // Use metadata-aware correction if available
-    const meta = await correctTextWithMetadata(value, avgOcrConfidence);
-    return {
-      ...meta,
-      type: classifyCellType(meta.value, colIndex),
-      edited: false
-    };
-  } else {
-    // Fallback: use simple correction
-    const corrected = await correctVietnameseText(value);
-    const wasCorrected = corrected !== original;
-    return {
-      value: corrected,
-      original: original,
-      confidence: wasCorrected ? 85 : avgOcrConfidence,
-      source: wasCorrected ? 'dictionary' : 'ocr',
-      correctedBy: wasCorrected ? 'BOQ Dictionary' : null,
-      type: classifyCellType(corrected, colIndex),
-      edited: false
-    };
-  }
+  // DISABLED: Use original OCR without corrections
+  // User reported OCR is already correct (e.g., "CHỦ NGHĨA VIỆT NAM")
+  // Auto-correction was making it worse
+  return {
+    value: original,
+    original: original,
+    confidence: avgOcrConfidence,
+    source: 'ocr',
+    correctedBy: null,
+    type: classifyCellType(original, colIndex),
+    edited: false
+  };
 }
 
 // ── Line Extraction from pdf.js Operator List ──
@@ -1002,10 +1087,9 @@ async function latticeExtract(textItems, lines, numPages) {
         cellText.sort((a, b) => a.y - b.y || a.x - b.x);
         const rawText = cellText.map(t => t.str).join(' ').trim();
 
-        // Apply Vietnamese correction to cell text
+        // Use original OCR text without correction
         try {
-          const corrected = rawText ? await correctVietnameseText(rawText) : rawText;
-          rowCells.push(corrected);
+          rowCells.push(rawText);
         } catch (error) {
           console.error('Cell correction failed in latticeExtract:', rawText, error);
           rowCells.push(rawText); // Fallback to original
@@ -1060,31 +1144,26 @@ async function textClusterExtract(textItems) {
       if (text.includes('|')) {
         const parts = text.split('|').map(p => p.trim()).filter(p => p);
         if (parts.length >= 2) {
-          // Apply Vietnamese correction to all cells except pure numbers
-          // FIX Bug #7: Wrap each cell in try-catch
-          const correctedCells = await Promise.all(parts.map(async p => {
-            try {
-              // Pure numbers - keep as-is
-              if (/^\d+[\.,]?\d*$/.test(p)) return p;
-              // Units (M3, KG, etc) - keep as-is
-              if (/^[A-Z]{1,4}\d*$/.test(p)) return p;
-              // Everything else - apply Vietnamese correction (trusts dictionary for brand names)
-              return await correctVietnameseText(p);
-            } catch (error) {
-              console.error('Cell correction failed:', p, error);
-              return p; // Return original on error
+          // FIX: Split first cell if it starts with numbered pattern (e.g., "1. Xi mang" → ["1.", "Xi mang"])
+          // This handles PDFs where STT column is not pipe-separated from content
+          const cells = [...parts];
+          if (cells[0] && /^(\d+\.|\d+\))\s+/.test(cells[0])) {
+            const match = cells[0].match(/^(\d+\.|\d+\))\s+(.+)$/);
+            if (match) {
+              cells.splice(0, 1, match[1], match[2]); // Replace first cell with [STT, content]
             }
-          }));
-          rows.push({ type: 'data', cells: correctedCells, page: +page });
+          }
+
+          rows.push({ type: 'data', cells: cells, page: +page });
           continue;
         }
       }
 
-      // Otherwise single column with full correction
+      // Otherwise single column - use original text
       try {
-        rows.push({ type: 'data', cells: [await correctVietnameseText(text)], page: +page });
+        rows.push({ type: 'data', cells: [text], page: +page });
       } catch (error) {
-        console.error('Text correction failed:', text, error);
+        console.error('Text parsing failed:', text, error);
         rows.push({ type: 'data', cells: [text], page: +page }); // Fallback to original
       }
     }
@@ -1143,6 +1222,14 @@ async function pipeBasedExtract(ocrLines) {
     while (parts.length > 0 && parts[parts.length - 1] === '') parts.pop();
 
     if (parts.length === 0) continue;
+
+    // FIX: Split first cell if it starts with numbered pattern (e.g., "1. Xi mang" → ["1.", "Xi mang"])
+    if (parts[0] && /^(\d+\.|\d+\))\s+/.test(parts[0])) {
+      var match = parts[0].match(/^(\d+\.|\d+\))\s+(.+)$/);
+      if (match) {
+        parts.splice(0, 1, match[1], match[2]); // Replace first cell with [STT, content]
+      }
+    }
 
     rawRows.push({ parts: parts, page: line.page, text: text, confidence: line.confidence });
   }
@@ -1249,7 +1336,7 @@ async function assignToColumns(parts) {
     }
 
     cells[0] = stt;
-    cells[1] = await correctVietnameseText(descParts.join(' ').trim());
+    cells[1] = descParts.join(' ').trim(); // Use original OCR without correction
     cells[2] = unit;
 
     // Collect all numbers from remaining parts
@@ -1273,7 +1360,7 @@ async function assignToColumns(parts) {
     // Check for trailing numbers pattern: "description ... num num num"
     var trailingNums = fullText.match(/^(.+?)\s+([\d.,]+)\s+([\d.,]+)\s+([\d.,]+)\s*$/);
     if (trailingNums) {
-      cells[1] = await correctVietnameseText(trailingNums[1]);
+      cells[1] = trailingNums[1];
       cells[3] = trailingNums[2]; cells[4] = trailingNums[3]; cells[5] = trailingNums[4];
     } else if (parts.length >= 3) {
       // Multiple pipe parts but no unit — last parts might be numbers
@@ -1281,26 +1368,26 @@ async function assignToColumns(parts) {
       var numericLast = lastParts.filter(function(p) { return /^[\d.,\-—()\s]+$/.test(p); }).length;
       if (numericLast >= 2) {
         var descEnd = parts.length - numericLast;
-        cells[1] = await correctVietnameseText(parts.slice(0, descEnd).join(' ').trim());
+        cells[1] = parts.slice(0, descEnd.join(' ').trim());
         var numArr = parts.slice(descEnd);
         for (var k = 0; k < numArr.length && k < 3; k++) {
           cells[3 + k] = numArr[k].replace(/[()]/g, '').trim();
         }
       } else {
-        cells[1] = await correctVietnameseText(fullText);
+        cells[1] = fullText;
       }
     } else {
       // Pure text row — extract STT if present
       var sttMatch2 = fullText.match(/^[\(\[]?(\d{1,3})[\)\]]?\s+(.*)/);
-      if (sttMatch2) { cells[0] = sttMatch2[1]; cells[1] = await correctVietnameseText(sttMatch2[2]); }
-      else { cells[1] = await correctVietnameseText(fullText); }
+      if (sttMatch2) { cells[0] = sttMatch2[1]; cells[1] = sttMatch2[2]; }
+      else { cells[1] = fullText; }
     }
   }
 
   // Final pass: extract STT from description if not already set
   if (!cells[0] && cells[1]) {
     var sttFinal = cells[1].match(/^[\(\[]?(\d{1,3})[\)\]]?\s+(.*)/);
-    if (sttFinal) { cells[0] = sttFinal[1]; cells[1] = await correctVietnameseText(sttFinal[2]); }
+    if (sttFinal) { cells[0] = sttFinal[1]; cells[1] = sttFinal[2]; }
   }
 
   // Clean OCR artifacts in numeric columns
@@ -1667,6 +1754,7 @@ function renderPreview(rows) {
   });
 
   $('dlXlsx').disabled = false;
+  $('dlDebugJSON').disabled = false;
 }
 
 function escHtml(s) {
@@ -1755,6 +1843,48 @@ $('dlXlsx').addEventListener('click', () => {
   XLSX.writeFile(wb, 'bieu_gia_extracted.xlsx');
   log('XLSX exported!', 'ok');
 });
+
+// ── Debug: Export JSON ──
+function exportDebugJSON() {
+  if (!debugData || !debugData.ocrWords || debugData.ocrWords.length === 0) {
+    alert('No debug data available. Process a PDF first.');
+    return;
+  }
+
+  const exportData = {
+    metadata: debugData.pdfMetadata,
+    statistics: {
+      totalWords: debugData.ocrWords.length,
+      totalLines: debugData.ocrLines.length,
+      totalPages: debugData.pageImages.length,
+      avgConfidence: debugData.ocrWords.length > 0
+        ? (debugData.ocrWords.reduce((sum, w) => sum + w.confidence, 0) / debugData.ocrWords.length).toFixed(1)
+        : 0
+    },
+    ocrWords: debugData.ocrWords,
+    ocrLines: debugData.ocrLines,
+    extractedRows: extractedRows.map(row => ({
+      type: row.type,
+      cells: row.cells.map(cell => ({
+        value: typeof cell === 'object' ? cell.value : cell,
+        original: typeof cell === 'object' ? cell.original : cell,
+        confidence: typeof cell === 'object' ? cell.confidence : null
+      }))
+    })),
+    columnBoundaries: debugData.columnBoundaries
+  };
+
+  const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'ocr_debug_data.json';
+  a.click();
+  URL.revokeObjectURL(url);
+  log('Debug JSON exported!', 'ok');
+}
+
+// ── Debug: Show Bbox Visualization ──
 
 // ── Export: CSV ── (Removed - Excel only)
 /*
