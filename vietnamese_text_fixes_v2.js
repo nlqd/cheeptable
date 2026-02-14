@@ -52,14 +52,7 @@ function fixVietnameseSpacing(text) {
  * Main post-processing function
  */
 function postProcessVietnameseText(text) {
-    if (!text) return text;
-
-    // Step 1: Fix spacing
-    text = fixVietnameseSpacing(text);
-
-    // Step 2: Normalize case
-    text = normalizeVietnameseCase(text);
-
+    // DISABLED: Return original text without any post-processing
     return text;
 }
 
