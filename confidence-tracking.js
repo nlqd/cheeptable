@@ -64,7 +64,7 @@ function correctWordWithMetadata(word, ocrConfidence = 85) {
 }
 
 // Enhanced text correction with syllable model tracking
-function correctTextWithMetadata(text, avgOcrConfidence = 85) {
+async function correctTextWithMetadata(text, avgOcrConfidence = 85) {
   const original = text;
 
   // Stage 0: Post-processing
@@ -72,7 +72,24 @@ function correctTextWithMetadata(text, avgOcrConfidence = 85) {
     text = postProcessVietnameseText(text);
   }
 
-  // Stage 1: Dictionary-based correction with metadata
+  // Stage 1: Try VPS API first (best accuracy)
+  if (typeof restoreVietnameseVPS !== 'undefined') {
+    const vpsResult = await restoreVietnameseVPS(text);
+    if (vpsResult !== null && vpsResult !== text) {
+      return {
+        value: vpsResult,
+        original: original,
+        confidence: 94, // VPS API accuracy
+        source: 'vps',
+        correctedBy: 'VPS Transformer Model (94% accuracy)',
+        dictionaryCorrected: false,
+        syllableCorrected: false,
+        vpsApiCorrected: true
+      };
+    }
+  }
+
+  // Stage 2: Dictionary-based correction with metadata
   const words = text.split(/\s+/);
   const correctedWords = words.map(w => {
     const m = w.match(/^([^\wàáảãạâấầẩẫậăắằẳẵặèéẻẽẹêếềểễệìíỉĩịòóỏõọôốồổỗộơớờởỡợùúủũụưứừửữựỳýỷỹỵđ]*)([\wàáảãạâấầẩẫậăắằẳẵặèéẻẽẹêếềểễệìíỉĩịòóỏõọôốồổỗộơớờởỡợùúủũụưứừửữựỳýỷỹỵđ]+)([^\wàáảãạâấầẩẫậăắằẳẵặèéẻẽẹêếềểễệìíỉĩịòóỏõọôốồổỗộơớờởỡợùúủũụưứừửữựỳýỷỹỵđ]*)$/i);
@@ -88,35 +105,41 @@ function correctTextWithMetadata(text, avgOcrConfidence = 85) {
     };
   });
 
-  const stage1Text = correctedWords.map(w => w.value).join(' ');
-  const stage1Confidence = Math.round(
+  const stage2Text = correctedWords.map(w => w.value).join(' ');
+  const stage2Confidence = Math.round(
     correctedWords.reduce((sum, w) => sum + w.confidence, 0) / correctedWords.length
   );
 
-  // Stage 2: Syllable model correction (if loaded)
+  // Stage 3: Syllable model correction (if loaded)
   if (syllableCorrector && syllableCorrector.ready) {
-    const stage2Text = syllableCorrector.correctText(stage1Text);
+    try {
+      // FIX Bug #8: Wrap external library call in try-catch
+      const stage3Text = syllableCorrector.correctText(stage2Text);
 
-    // Check if syllable model made changes
-    if (stage2Text !== stage1Text) {
-      return {
-        value: stage2Text,
-        original: original,
-        confidence: Math.min(stage1Confidence + 5, 95), // Slight boost
-        source: 'syllable',
-        correctedBy: 'Syllable Model (Vietnamese news corpus)',
-        dictionaryCorrected: stage1Text !== text,
-        syllableCorrected: true
-      };
+      // Check if syllable model made changes
+      if (stage3Text !== stage2Text) {
+        return {
+          value: stage3Text,
+          original: original,
+          confidence: Math.min(stage2Confidence + 5, 95), // Slight boost
+          source: 'syllable',
+          correctedBy: 'Syllable Model (Vietnamese news corpus)',
+          dictionaryCorrected: stage2Text !== text,
+          syllableCorrected: true
+        };
+      }
+    } catch (error) {
+      console.error('Syllable corrector failed:', error);
+      // Continue to return Stage 2 result
     }
   }
 
-  // Return Stage 1 result
-  const dictCorrected = stage1Text !== original;
+  // Return Stage 2 result
+  const dictCorrected = stage2Text !== original;
   return {
-    value: stage1Text,
+    value: stage2Text,
     original: original,
-    confidence: stage1Confidence,
+    confidence: stage2Confidence,
     source: dictCorrected ? 'dictionary' : 'ocr',
     correctedBy: dictCorrected ? 'BOQ Dictionary' : null,
     dictionaryCorrected: dictCorrected,
@@ -140,7 +163,7 @@ function classifyCellType(text, colIndex) {
 }
 
 // Enhanced cell builder
-function buildCellWithMetadata(words, colIndex) {
+async function buildCellWithMetadata(words, colIndex) {
   if (!words || words.length === 0) {
     return {
       value: '',
@@ -160,7 +183,7 @@ function buildCellWithMetadata(words, colIndex) {
   );
 
   // Apply corrections with metadata
-  const correctionMeta = correctTextWithMetadata(rawText, avgConfidence);
+  const correctionMeta = await correctTextWithMetadata(rawText, avgConfidence);
 
   return {
     value: correctionMeta.value,
