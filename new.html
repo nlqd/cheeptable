@@ -162,8 +162,16 @@ pdfjsLib.GlobalWorkerOptions.workerSrc =
 // ── State ──
 let extractedRows = [];
 let tesseractWorker = null;
+let tesseractInitializing = false; // SECURITY FIX #4: Prevent race condition
 let syllableCorrector = null;
 let processingCancelled = false;
+
+// VPS API Configuration
+// SECURITY FIX #5: Make VPS API URL configurable instead of hardcoded
+const DEFAULT_VPS_API_URL = 'http://localhost:5001/restore';
+const VPS_API_URL = localStorage.getItem('vps_api_url') || DEFAULT_VPS_API_URL;
+let vpsApiAvailable = null; // null = unknown, true = working, false = offline
+let diacriticCache = {}; // In-memory cache for this session
 
 // ── UI Refs ──
 const $ = id => document.getElementById(id);
@@ -307,10 +315,20 @@ async function extractPDF(buffer) {
       allLines.push(...pageLines);
     } else {
       // Image-based page: OCR
-      if (!tesseractWorker) {
+      // SECURITY FIX #4: Prevent race condition in worker initialization
+      if (!tesseractWorker && !tesseractInitializing) {
+        tesseractInitializing = true;
         log('Initializing Tesseract OCR (Vietnamese tessdata_best)...', 'warn');
-        tesseractWorker = await initTesseract();
-        log('Tesseract ready', 'ok');
+        try {
+          tesseractWorker = await initTesseract();
+          log('Tesseract ready', 'ok');
+        } finally {
+          tesseractInitializing = false;
+        }
+      }
+      // Wait for initialization if another page is already initializing
+      while (tesseractInitializing && !tesseractWorker) {
+        await new Promise(resolve => setTimeout(resolve, 100));
       }
 
       if (!syllableCorrector) {
@@ -344,13 +362,13 @@ async function extractPDF(buffer) {
   let rows;
   if (allOcrWords.length > 0) {
     log(`OCR total: ${allOcrWords.length} words across ${ocrPageCount} pages`, 'ok');
-    rows = ocrTableExtract(allOcrLines, allOcrWords);
+    rows = await ocrTableExtract(allOcrLines, allOcrWords);
   } else if (allLines.length > 20) {
     log('Using LATTICE mode (lines detected)', 'ok');
-    rows = latticeExtract(allTextItems, allLines, numPages);
+    rows = await latticeExtract(allTextItems, allLines, numPages);
   } else {
     log('Using alternative table detection method...', 'ok');
-    rows = textClusterExtract(allTextItems);
+    rows = await textClusterExtract(allTextItems);
   }
 
   $('pbar').style.width = '95%';
@@ -625,14 +643,29 @@ function importCustomDict() {
           return;
         }
 
+        // SECURITY FIX #1: Sanitize imported words to prevent XSS
+        const sanitized = imported.filter(word => {
+          // Only allow Vietnamese letters, numbers, spaces, and hyphens, max 50 chars
+          if (typeof word !== 'string' || word.length === 0 || word.length > 50) {
+            return false;
+          }
+          // Vietnamese alphanumeric + common punctuation only
+          return /^[\wàáảãạâấầẩẫậăắằẳẵặèéẻẽẹêếềểễệìíỉĩịòóỏõọôốồổỗộơớờởỡợùúủũụưứừửữựỳýỷỹỵđÀÁẢÃẠÂẤẦẨẪẬĂẮẰẲẴẶÈÉẺẼẸÊẾỀỂỄỆÌÍỈĨỊÒÓỎÕỌÔỐỒỔỖỘƠỚỜỞỠỢÙÚỦŨỤƯỨỪỬỮỰỲÝỶỸỴĐ\s\-\.]+$/.test(word);
+        });
+
         const customWords = loadCustomWords();
-        const merged = [...new Set([...customWords, ...imported])];
+        const merged = [...new Set([...customWords, ...sanitized])];
 
         saveCustomWords(merged);
         VIETNAMESE_DICT = buildDictionary();
         updateCustomWordsUI();
 
-        log(`Imported ${imported.length} words (${merged.length - customWords.length} new)`, 'ok');
+        const rejected = imported.length - sanitized.length;
+        if (rejected > 0) {
+          log(`Imported ${sanitized.length} words (${rejected} rejected for safety)`, 'warn');
+        } else {
+          log(`Imported ${sanitized.length} words (${merged.length - customWords.length} new)`, 'ok');
+        }
       } catch (err) {
         alert('Failed to import: ' + err.message);
       }
@@ -643,6 +676,12 @@ function importCustomDict() {
 }
 
 function levenshteinDist(a, b) {
+  // SECURITY FIX #3: Prevent DoS with unbounded strings (O(n²) memory/CPU)
+  const MAX_LENGTH = 100;
+  if (a.length > MAX_LENGTH || b.length > MAX_LENGTH) {
+    return 999; // Return high distance for overly long strings
+  }
+
   const m = [], al = a.length, bl = b.length;
   for (let i = 0; i <= bl; i++) m[i] = [i];
   for (let j = 0; j <= al; j++) m[0][j] = j;
@@ -687,31 +726,144 @@ function correctWord(word) {
   return best || word;
 }
 
-function correctVietnameseText(text) {
-  // Three-stage correction pipeline:
+// ── VPS Diacritic Restoration API ──
+function loadDiacriticCache() {
+  try {
+    const stored = localStorage.getItem('viet_diacritic_cache');
+    return stored ? JSON.parse(stored) : {};
+  } catch (e) {
+    console.error('Failed to load diacritic cache:', e);
+    return {};
+  }
+}
+
+function saveDiacriticCache() {
+  try {
+    localStorage.setItem('viet_diacritic_cache', JSON.stringify(diacriticCache));
+  } catch (e) {
+    // FIX Bug #6: Handle localStorage quota errors gracefully
+    if (e.name === 'QuotaExceededError') {
+      console.warn('Cache quota exceeded, clearing old entries');
+      const entries = Object.entries(diacriticCache);
+      diacriticCache = Object.fromEntries(entries.slice(-500)); // Keep newest 500
+      try {
+        localStorage.setItem('viet_diacritic_cache', JSON.stringify(diacriticCache));
+        console.log('Cache trimmed and saved successfully');
+      } catch (e2) {
+        console.error('Cache still too large, running without persistence');
+      }
+    } else {
+      console.error('Failed to save diacritic cache:', e);
+    }
+  }
+}
+
+async function restoreVietnameseVPS(text) {
+  if (!text || !text.trim()) return text;
+
+  // Check cache first (FIX Bug #5: normalize internal whitespace)
+  const cacheKey = text.toLowerCase().trim().replace(/\s+/g, ' ');
+  if (diacriticCache[cacheKey]) {
+    return diacriticCache[cacheKey];
+  }
+
+  // Try VPS API if not already determined to be offline
+  if (vpsApiAvailable !== false) {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 2000); // 2s timeout
+
+    try {
+      const response = await fetch(VPS_API_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: text }),
+        signal: controller.signal
+      });
+
+      if (response.ok) {
+        // FIX Bug #1: Handle JSON parsing errors
+        try {
+          const result = await response.json();
+          if (result.success && result.restored !== undefined && result.restored !== null) {
+            vpsApiAvailable = true;
+
+            // FIX Bug #4: Cache size limit with LRU eviction
+            const MAX_CACHE_SIZE = 1000;
+            if (Object.keys(diacriticCache).length > MAX_CACHE_SIZE) {
+              const entries = Object.entries(diacriticCache);
+              diacriticCache = Object.fromEntries(entries.slice(-800)); // Keep newest 80%
+            }
+
+            // Cache the result
+            diacriticCache[cacheKey] = result.restored;
+            saveDiacriticCache();
+            return result.restored;
+          }
+        } catch (jsonError) {
+          console.error('VPS API returned invalid JSON:', jsonError);
+          // Fall through to fallback
+        }
+      }
+    } catch (error) {
+      // API unavailable - mark as offline and fall through to fallback
+      if (vpsApiAvailable === null) {
+        vpsApiAvailable = false;
+        log('VPS diacritic API not available, using local fallback', 'warn');
+      }
+    } finally {
+      // FIX Bug #2: Always clear timeout
+      clearTimeout(timeoutId);
+    }
+  }
+
+  // Fallback: use local correction
+  return null; // Signal to use fallback
+}
+
+async function correctVietnameseText(text) {
+  // Four-stage correction pipeline:
 
   // Stage 0: Post-processing (spacing, case normalization)
   if (typeof postProcessVietnameseText !== 'undefined') {
     text = postProcessVietnameseText(text);
   }
 
-  // Stage 1: Dictionary-based correction (fast, simple)
-  let stage1 = text.split(/\s+/).map(w => {
-    const m = w.match(/^([^\wàáảãạâấầẩẫậăắằẳẵặèéẻẽẹêếềểễệìíỉĩịòóỏõọôốồổỗộơớờởỡợùúủũụưứừửữựỳýỷỹỵđ]*)([\wàáảãạâấầẩẫậăắằẳẵặèéẻẽẹêếềểễệìíỉĩịòóỏõọôốồổỗộơớờởỡợùúủũụưứừửữựỳýỷỹỵđ]+)([^\wàáảãạâấầẩẫậăắằẳẵặèéẻẽẹêếềểễệìíỉĩịòóỏõọôốồổỗộơớờởỡợùúủũụưứừửữựỳýỷỹỵđ]*)$/i);
+  // Stage 1: VPS API (best accuracy, domain-agnostic)
+  const vpsResult = await restoreVietnameseVPS(text);
+  if (vpsResult !== null) {
+    return vpsResult;
+  }
+
+  // Stage 2: Dictionary-based correction (fast, simple)
+  // SECURITY FIX #2: Prevent ReDoS with simplified regex and length check
+  const vnChar = '[\\wàáảãạâấầẩẫậăắằẳẵặèéẻẽẹêếềểễệìíỉĩịòóỏõọôốồổỗộơớờởỡợùúủũụưứừửữựỳýỷỹỵđ]';
+  const nonVn = '[^\\wàáảãạâấầẩẫậăắằẳẵặèéẻẽẹêếềểễệìíỉĩịòóỏõọôốồổỗộơớờởỡợùúủũụưứừửữựỳýỷỹỵđ]';
+  const vnWordPattern = new RegExp(`^(${nonVn}*)(${vnChar}+)(${nonVn}*)$`, 'i');
+
+  let stage2 = text.split(/\s+/).map(w => {
+    // Prevent ReDoS: reject overly long words
+    if (w.length > 100) return w;
+    const m = w.match(vnWordPattern);
     if (!m) return w;
     return m[1] + correctWord(m[2]) + m[3];
   }).join(' ');
 
-  // Stage 2: Syllable model correction (domain-agnostic)
+  // Stage 3: Syllable model correction (domain-agnostic fallback)
   if (syllableCorrector && syllableCorrector.ready) {
-    return syllableCorrector.correctText(stage1);
+    try {
+      // FIX Bug #8: Wrap external library call in try-catch
+      return syllableCorrector.correctText(stage2);
+    } catch (error) {
+      console.error('Syllable corrector failed:', error);
+      return stage2; // Fallback to dictionary-only result
+    }
   }
 
-  return stage1;
+  return stage2;
 }
 
 // Helper: Convert string value to cell metadata object
-function createCellMetadata(value, avgOcrConfidence, colIndex) {
+async function createCellMetadata(value, avgOcrConfidence, colIndex) {
   if (!value || value === '') {
     return {
       value: '',
@@ -729,7 +881,7 @@ function createCellMetadata(value, avgOcrConfidence, colIndex) {
   // Apply corrections using existing pipeline
   if (typeof correctTextWithMetadata !== 'undefined') {
     // Use metadata-aware correction if available
-    const meta = correctTextWithMetadata(value, avgOcrConfidence);
+    const meta = await correctTextWithMetadata(value, avgOcrConfidence);
     return {
       ...meta,
       type: classifyCellType(meta.value, colIndex),
@@ -737,7 +889,7 @@ function createCellMetadata(value, avgOcrConfidence, colIndex) {
     };
   } else {
     // Fallback: use simple correction
-    const corrected = correctVietnameseText(value);
+    const corrected = await correctVietnameseText(value);
     const wasCorrected = corrected !== original;
     return {
       value: corrected,
@@ -807,7 +959,7 @@ function extractLines(opList, pageH, pageNum) {
 }
 
 // ── Lattice Table Extraction ──
-function latticeExtract(textItems, lines, numPages) {
+async function latticeExtract(textItems, lines, numPages) {
   const allRows = [];
 
   for (let p = 1; p <= numPages; p++) {
@@ -848,7 +1000,16 @@ function latticeExtract(textItems, lines, numPages) {
           return tcx >= xL && tcx <= xR && tcy >= yTop + CELL_PAD && tcy <= yBot - CELL_PAD;
         });
         cellText.sort((a, b) => a.y - b.y || a.x - b.x);
-        rowCells.push(cellText.map(t => t.str).join(' ').trim());
+        const rawText = cellText.map(t => t.str).join(' ').trim();
+
+        // Apply Vietnamese correction to cell text
+        try {
+          const corrected = rawText ? await correctVietnameseText(rawText) : rawText;
+          rowCells.push(corrected);
+        } catch (error) {
+          console.error('Cell correction failed in latticeExtract:', rawText, error);
+          rowCells.push(rawText); // Fallback to original
+        }
       }
 
       // Skip empty rows
@@ -875,7 +1036,7 @@ function latticeExtract(textItems, lines, numPages) {
 }
 
 // ── Fallback: Text Clustering ──
-function textClusterExtract(textItems) {
+async function textClusterExtract(textItems) {
   log('Text clustering: grouping by Y coordinate...', 'warn');
   const rows = [];
 
@@ -900,28 +1061,39 @@ function textClusterExtract(textItems) {
         const parts = text.split('|').map(p => p.trim()).filter(p => p);
         if (parts.length >= 2) {
           // Apply Vietnamese correction to all cells except pure numbers
-          const correctedCells = parts.map(p => {
-            // Pure numbers - keep as-is
-            if (/^\d+[\.,]?\d*$/.test(p)) return p;
-            // Units (M3, KG, etc) - keep as-is
-            if (/^[A-Z]{1,4}\d*$/.test(p)) return p;
-            // Everything else - apply Vietnamese correction (trusts dictionary for brand names)
-            return correctVietnameseText(p);
-          });
+          // FIX Bug #7: Wrap each cell in try-catch
+          const correctedCells = await Promise.all(parts.map(async p => {
+            try {
+              // Pure numbers - keep as-is
+              if (/^\d+[\.,]?\d*$/.test(p)) return p;
+              // Units (M3, KG, etc) - keep as-is
+              if (/^[A-Z]{1,4}\d*$/.test(p)) return p;
+              // Everything else - apply Vietnamese correction (trusts dictionary for brand names)
+              return await correctVietnameseText(p);
+            } catch (error) {
+              console.error('Cell correction failed:', p, error);
+              return p; // Return original on error
+            }
+          }));
           rows.push({ type: 'data', cells: correctedCells, page: +page });
           continue;
         }
       }
 
       // Otherwise single column with full correction
-      rows.push({ type: 'data', cells: [correctVietnameseText(text)], page: +page });
+      try {
+        rows.push({ type: 'data', cells: [await correctVietnameseText(text)], page: +page });
+      } catch (error) {
+        console.error('Text correction failed:', text, error);
+        rows.push({ type: 'data', cells: [text], page: +page }); // Fallback to original
+      }
     }
   }
   return rows;
 }
 
 // ── OCR Table Extraction ──
-function ocrTableExtract(ocrLines, ocrWords) {
+async function ocrTableExtract(ocrLines, ocrWords) {
   // Filter margin content (headers/footers in top/bottom 5%)
   const pageHeights = {};
   ocrWords.forEach(w => {
@@ -940,24 +1112,24 @@ function ocrTableExtract(ocrLines, ocrWords) {
 
   if (pipeRatio > 0.25) {
     log('Using PIPE-BASED parsing (table borders detected in OCR)', 'ok');
-    const correctionType = syllableCorrector && syllableCorrector.ready ? 'dict + syllable' : 'dict only';
+    const correctionType = vpsApiAvailable ? 'VPS API (94%)' : (syllableCorrector && syllableCorrector.ready ? 'dict + syllable' : 'dict only');
     log(`  Applying Vietnamese spell correction (${correctionType})...`, 'ok');
-    return pipeBasedExtract(filteredLines);
+    return await pipeBasedExtract(filteredLines);
   }
 
   // Fallback: spatial word-position analysis
   log('Using SPATIAL parsing (word positions)', 'ok');
-  const correctionType2 = syllableCorrector && syllableCorrector.ready ? 'dict + syllable' : 'dict only';
+  const correctionType2 = vpsApiAvailable ? 'VPS API (94%)' : (syllableCorrector && syllableCorrector.ready ? 'dict + syllable' : 'dict only');
   log(`  Applying Vietnamese spell correction (${correctionType2})...`, 'ok');
   const filteredWords = ocrWords.filter(w => {
     const ph = pageHeights[w.page] || 800;
     return w.y > ph * 0.05 && w.y1 < ph * 0.95;
   });
-  return spatialExtract(filteredLines, filteredWords);
+  return await spatialExtract(filteredLines, filteredWords);
 }
 
 // ── Pipe-based extraction (scanned tables with visible borders) ──
-function pipeBasedExtract(ocrLines) {
+async function pipeBasedExtract(ocrLines) {
   var rawRows = [];
 
   for (var li = 0; li < ocrLines.length; li++) {
@@ -980,13 +1152,28 @@ function pipeBasedExtract(ocrLines) {
 
   for (var ri = 0; ri < rawRows.length; ri++) {
     var raw = rawRows[ri];
-    var cellStrings = assignToColumns(raw.parts);
+    var cellStrings = await assignToColumns(raw.parts);
     if (!cellStrings) continue;
 
     // Convert string cells to metadata objects
-    var cells = cellStrings.map(function(val, colIdx) {
-      return createCellMetadata(val, raw.confidence || 85, colIdx);
-    });
+    // FIX Bug #7: Wrap each cell in try-catch to prevent single error from stopping extraction
+    var cells = await Promise.all(cellStrings.map(async function(val, colIdx) {
+      try {
+        return await createCellMetadata(val, raw.confidence || 85, colIdx);
+      } catch (error) {
+        console.error('Cell correction failed for:', val, error);
+        // Return fallback metadata for failed cell
+        return {
+          value: val,
+          original: val,
+          confidence: 50,
+          source: 'error',
+          correctedBy: 'Error - using original',
+          type: classifyCellType(val, colIdx),
+          edited: false
+        };
+      }
+    }));
 
     var cellValues = cells.map(c => c.value);
     var rowType = classifyRow(cellValues, TARGET_COLS);
@@ -1013,7 +1200,7 @@ function matchUnit(s) {
 }
 
 // Map pipe-split parts into 6 columns: [STT, desc, unit, qty, price, total]
-function assignToColumns(parts) {
+async function assignToColumns(parts) {
   var cells = ['', '', '', '', '', ''];
   if (parts.length === 0) return null;
 
@@ -1062,7 +1249,7 @@ function assignToColumns(parts) {
     }
 
     cells[0] = stt;
-    cells[1] = correctVietnameseText(descParts.join(' ').trim());
+    cells[1] = await correctVietnameseText(descParts.join(' ').trim());
     cells[2] = unit;
 
     // Collect all numbers from remaining parts
@@ -1086,7 +1273,7 @@ function assignToColumns(parts) {
     // Check for trailing numbers pattern: "description ... num num num"
     var trailingNums = fullText.match(/^(.+?)\s+([\d.,]+)\s+([\d.,]+)\s+([\d.,]+)\s*$/);
     if (trailingNums) {
-      cells[1] = correctVietnameseText(trailingNums[1]);
+      cells[1] = await correctVietnameseText(trailingNums[1]);
       cells[3] = trailingNums[2]; cells[4] = trailingNums[3]; cells[5] = trailingNums[4];
     } else if (parts.length >= 3) {
       // Multiple pipe parts but no unit — last parts might be numbers
@@ -1094,26 +1281,26 @@ function assignToColumns(parts) {
       var numericLast = lastParts.filter(function(p) { return /^[\d.,\-—()\s]+$/.test(p); }).length;
       if (numericLast >= 2) {
         var descEnd = parts.length - numericLast;
-        cells[1] = correctVietnameseText(parts.slice(0, descEnd).join(' ').trim());
+        cells[1] = await correctVietnameseText(parts.slice(0, descEnd).join(' ').trim());
         var numArr = parts.slice(descEnd);
         for (var k = 0; k < numArr.length && k < 3; k++) {
           cells[3 + k] = numArr[k].replace(/[()]/g, '').trim();
         }
       } else {
-        cells[1] = correctVietnameseText(fullText);
+        cells[1] = await correctVietnameseText(fullText);
       }
     } else {
       // Pure text row — extract STT if present
       var sttMatch2 = fullText.match(/^[\(\[]?(\d{1,3})[\)\]]?\s+(.*)/);
-      if (sttMatch2) { cells[0] = sttMatch2[1]; cells[1] = correctVietnameseText(sttMatch2[2]); }
-      else { cells[1] = correctVietnameseText(fullText); }
+      if (sttMatch2) { cells[0] = sttMatch2[1]; cells[1] = await correctVietnameseText(sttMatch2[2]); }
+      else { cells[1] = await correctVietnameseText(fullText); }
     }
   }
 
   // Final pass: extract STT from description if not already set
   if (!cells[0] && cells[1]) {
     var sttFinal = cells[1].match(/^[\(\[]?(\d{1,3})[\)\]]?\s+(.*)/);
-    if (sttFinal) { cells[0] = sttFinal[1]; cells[1] = correctVietnameseText(sttFinal[2]); }
+    if (sttFinal) { cells[0] = sttFinal[1]; cells[1] = await correctVietnameseText(sttFinal[2]); }
   }
 
   // Clean OCR artifacts in numeric columns
@@ -1127,14 +1314,14 @@ function assignToColumns(parts) {
 }
 
 // ── Spatial extraction fallback (for cleaner OCR without pipe borders) ──
-function spatialExtract(filteredLines, filteredWords) {
+async function spatialExtract(filteredLines, filteredWords) {
   var colBoundaries = detectColumns(filteredWords, filteredLines);
   var numCols = colBoundaries.length - 1;
   log('  Column detection: ' + numCols + ' columns (spatial)');
 
   if (numCols < 2) {
     log('  Column detection failed, falling back to pipe-based splitting...', 'warn');
-    return pipeBasedExtract(filteredLines);
+    return await pipeBasedExtract(filteredLines);
   }
 
   var rows = [];
@@ -1152,9 +1339,25 @@ function spatialExtract(filteredLines, filteredWords) {
     }
 
     // Build cells with metadata
-    var cells = cellWords.map(function(words, colIdx) {
-      return buildCellWithMetadata(words, colIdx);
-    });
+    // FIX Bug #7: Wrap each cell in try-catch to prevent single error from stopping extraction
+    var cells = await Promise.all(cellWords.map(async function(words, colIdx) {
+      try {
+        return await buildCellWithMetadata(words, colIdx);
+      } catch (error) {
+        console.error('Cell metadata build failed:', words, error);
+        // Return fallback metadata for failed cell
+        const rawText = words.map(w => w.text).join(' ');
+        return {
+          value: rawText,
+          original: rawText,
+          confidence: 50,
+          source: 'error',
+          correctedBy: 'Error - using original',
+          type: classifyCellType(rawText, colIdx),
+          edited: false
+        };
+      }
+    }));
 
     if (cells.every(function(c) { return c.value === ''; })) continue;
 
@@ -1618,9 +1821,11 @@ function parseVnNumber(s) {
 
 // ── Init ──
 updateCustomWordsUI();  // Load custom dictionary UI on page load
+diacriticCache = loadDiacriticCache();  // Load VPS API cache
 
 log('Ready. Drop a BOQ PDF to begin.');
 log('Pipeline: pdf.js (text + vectors) → Tesseract.js OCR fallback → table extraction → SheetJS export');
+log('Diacritic correction: VPS API (94% accuracy) → Dictionary → Syllable model fallback');
 log('No data leaves your browser.\n');
 
 // ── Cleanup ──

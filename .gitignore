@@ -1,0 +1,89 @@
+# Vietnamese OCR - Production Deployment .gitignore
+
+# Node modules
+node_modules/
+package-lock.json
+
+# Test files
+test_*.mjs
+test_*.js
+test_*.html
+test_*.sh
+inspect_*.mjs
+*_test.py
+
+# Internal documentation (not for deployment)
+REVIEW_SUMMARY.md
+SECURITY_FIXES_APPLIED.md
+RODNEY_TEST_REPORT.md
+COMPREHENSIVE_TEST_REPORT.md
+TESTING_SUMMARY.md
+TEST_RESULTS_EXECUTIVE_SUMMARY.txt
+README_TESTING.txt
+
+# Development/analysis scripts
+analyze_*.py
+build_*.py
+fix_*.py
+create_*.py
+deep_*.py
+root_cause_analysis.py
+
+# Mock API for testing
+simple_mock_api.py
+mock_vps_api.py
+diacritic_api.py
+diacritic_local.py
+viet_diacritic_api.py
+
+# Deployment configs (user-specific)
+deploy.sh
+nginx.conf
+requirements_diacritic.txt
+
+# Large datasets
+tessdata_best/
+models/
+vie_news_2020_300K/
+vie_corpus.tar.gz
+vn-ngram-wasm/
+
+# Build artifacts
+*.log
+*.pyc
+__pycache__/
+.DS_Store
+*.swp
+*.swo
+*~
+
+# Test artifacts
+screenshot*.png
+current_extraction.csv
+test_result.png
+implementation_analysis.json
+
+# QA documents
+QA_CHECKLIST.txt
+TEST_SUMMARY.txt
+CLEANUP_PLAN.txt
+
+# Obsolete files
+vietnamese_text_fixes.js
+vn_ngram_corrector.js
+vn_hf_corrector.js
+vn_construction_dict.js
+
+# Temporary files
+/tmp/
+*.tmp
+*.bak
+
+# IDE files
+.vscode/
+.idea/
+*.sublime-*
+
+# OS files
+Thumbs.db
+.DS_Store
