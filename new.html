@@ -1464,12 +1464,19 @@ async function spatialExtract(filteredLines, filteredWords) {
 }
 
 function detectColumns(words, lines) {
-  // Strategy 1: Header anchoring
+  // Strategy 1: Header anchoring (look for header line + words in nearby Y-range)
   for (var i = 0; i < lines.length; i++) {
     var lineText = lines[i].text.toLowerCase();
     if ((/stt|\(1\)/).test(lineText) && (/mô\s*tả|công\s*việc|[đd]vt|đơn\s*vị/).test(lineText)) {
       log('  Header found: "' + lines[i].text.substring(0, 60) + '..."', 'ok');
-      var sortedWords = lines[i].words.slice().sort(function(a, b) { return a.x - b.x; });
+
+      // FIX: Gather words from header region (±30px Y-range) to catch multi-line headers
+      var headerY = lines[i].y;
+      var headerWords = words.filter(function(w) {
+        return Math.abs(w.y - headerY) < 30 && w.page === lines[i].page;
+      });
+
+      var sortedWords = headerWords.slice().sort(function(a, b) { return a.x - b.x; });
       if (sortedWords.length >= 4) {
         var boundaries = [sortedWords[0].x - 5];
         for (var j = 0; j < sortedWords.length - 1; j++) {
@@ -1478,12 +1485,18 @@ function detectColumns(words, lines) {
           }
         }
         boundaries.push(sortedWords[sortedWords.length - 1].x1 + 20);
-        if (boundaries.length >= 5) return boundaries;
+
+        // FIX: For BOQ tables, expect 6 columns (7 boundaries). Fall back to histogram if < 7
+        if (boundaries.length >= 7) {
+          log('  Column boundaries (header): [' + boundaries.map(function(b) { return b.toFixed(0); }).join(', ') + ']');
+          return boundaries;
+        }
+        log('  Header found but only ' + (boundaries.length - 1) + ' columns, trying histogram...', 'warn');
       }
     }
   }
 
-  log('  Header not found, using x-histogram gap detection', 'warn');
+  log('  Header not found or incomplete, using x-histogram gap detection', 'warn');
   return detectColumnsHistogram(words);
 }
 
