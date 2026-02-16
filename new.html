@@ -3,10 +3,11 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>BOQ PDF → Excel (Client-side POC)</title>
+<title>PDF Table OCR → Excel</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+<script async src="https://docs.opencv.org/4.x/opencv.js" onload="onOpenCvReady();" type="text/javascript"></script>
 <script src="vn_syllable_corrector.js"></script>
 <script src="vietnamese_text_fixes_v2.js"></script>
 <script src="confidence-tracking.js"></script>
@@ -68,13 +69,73 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
 .progress-bar { height: 100%; background: var(--accent); transition: width 0.3s; border-radius: 2px; }
 
 .hidden { display: none !important; }
+
+/* ── Issue Review ── */
+#issueNav { display:flex; align-items:center; gap:8px; flex-wrap:wrap; padding:8px 12px; background:rgba(239,68,68,0.07); border:1px solid rgba(239,68,68,0.2); border-radius:6px; margin-bottom:8px; font-size:12px; }
+#issueNav.no-issues { background:rgba(16,185,129,0.07); border-color:rgba(16,185,129,0.2); }
+.fl-cnt { font-weight:700; color:#dc2626; font-size:14px; }
+.fl-cnt.ok { color:var(--accent2); }
+td.fl-math { background:rgba(239,68,68,0.13)!important; outline:1px solid rgba(239,68,68,0.45); }
+td.fl-char { background:rgba(124,58,237,0.11)!important; outline:1px solid rgba(124,58,237,0.38); }
+td.fl-unit { background:rgba(245,158,11,0.12)!important; outline:1px solid rgba(245,158,11,0.38); }
+td.fl-conf { background:rgba(245,158,11,0.09)!important; outline:1px solid rgba(245,158,11,0.28); }
+td.fl-tail { background:rgba(16,185,129,0.07)!important; outline:1px dashed rgba(16,185,129,0.4); }
+tr.fl-active > td { box-shadow:inset 0 0 0 2px var(--accent)!important; }
+.fl-icon { display:inline-flex; align-items:center; font-size:10px; padding:1px 4px; border-radius:3px; cursor:pointer; vertical-align:middle; user-select:none; }
+.fl-icon.err  { background:#fecaca; color:#b91c1c; }
+.fl-icon.warn { background:#fef3c7; color:#92400e; }
+.fl-icon.info { background:#dbeafe; color:#1e40af; }
+.speak-btn { background:none; border:none; padding:0 3px; font-size:13px; cursor:pointer; color:var(--dim); opacity:0.5; vertical-align:middle; line-height:1; }
+.speak-btn:hover { opacity:1; }
+.reocr-btn { background:none; border:1px solid var(--border); padding:1px 5px; font-size:10px; border-radius:3px; cursor:pointer; color:var(--dim); vertical-align:middle; margin-left:3px; }
+.reocr-btn:hover { border-color:var(--accent); color:var(--accent); }
+/* Minimap */
+#minimapWrap { display:flex; gap:0; align-items:stretch; }
+#minimap { width:12px; flex-shrink:0; background:var(--border); border-radius:0 4px 4px 0; overflow:hidden; cursor:pointer; border:1px solid var(--border); border-left:none; position:relative; }
+/* Crop popover */
+#cropPop { position:fixed; z-index:800; background:var(--surface); border:1px solid var(--border); border-radius:8px; box-shadow:0 4px 20px rgba(0,0,0,0.2); padding:8px; display:none; pointer-events:none; max-width:440px; }
+#cropPop .cp-label { font-size:10px; color:var(--dim); margin-top:4px; font-style:italic; text-align:center; }
+
+#authOverlay {
+  position: fixed; inset: 0; z-index: 9999;
+  background: rgba(15,23,42,0.92); backdrop-filter: blur(6px);
+  display: flex; align-items: center; justify-content: center;
+}
+#authBox {
+  background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
+  padding: 36px 40px; width: 340px; text-align: center;
+}
+#authBox h2 { font-size: 16px; margin-bottom: 6px; }
+#authBox p  { font-size: 12px; color: var(--dim); margin-bottom: 20px; }
+#authToken  {
+  width: 100%; padding: 10px 12px; border-radius: 6px;
+  border: 1px solid var(--border); background: var(--bg); color: var(--text);
+  font-family: inherit; font-size: 14px; margin-bottom: 12px; letter-spacing: 0.05em;
+}
+#authToken:focus { outline: 2px solid var(--accent); border-color: transparent; }
+#authError { color: #ef4444; font-size: 11px; min-height: 16px; margin-bottom: 8px; }
 </style>
 </head>
 <body>
 
-<h1>Vietnamese Bill of Quantities (BOQ) PDF → <span>Excel</span></h1>
-<p class="subtitle">Extract pricing tables from Vietnamese construction documents · <em>100% private - no data uploaded</em></p>
-<p style="font-size: 11px; color: var(--dim); margin-bottom: 16px;">⚡ Client-side OCR with Vietnamese language model · All processing happens in your browser</p>
+<div id="authOverlay">
+  <div id="authBox">
+    <h2>🔑 Access Token Required</h2>
+    <p>Enter the token to use this tool.</p>
+    <input id="authToken" type="password" placeholder="Paste token here"
+           onkeydown="if(event.key==='Enter') submitAuth()">
+    <div id="authError"></div>
+    <button onclick="submitAuth()" style="width:100%;padding:10px;">Unlock</button>
+  </div>
+</div>
+
+<h1>PDF Table OCR → <span>Excel</span></h1>
+<p class="subtitle">Extract tables from scanned PDFs · Vietnamese text support · <em>100% private - no data uploaded</em></p>
+<p style="font-size: 11px; color: var(--dim); margin-bottom: 16px;">
+  ⚡ Vietnamese OCR ·
+  <span id="ocrBackendBadge" style="font-weight:600; color: var(--dim);">checking server…</span>
+  · <a href="#" onclick="clearAuthToken();return false;" style="font-size:11px;color:var(--dim);">change token</a>
+</p>
 
 <div id="dropzone">
   <input type="file" id="fileInput" accept=".pdf">
@@ -141,31 +202,104 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
   </div>
 </div>
 
+<div id="issueNav" class="hidden"></div>
+
 <div id="previewPanel" class="panel hidden">
-  <div class="panel-title">Table Preview <span id="previewCount"></span> · <span style="color:var(--dim);font-size:10px">Click cells to edit</span></div>
-  <div class="table-wrap" id="tableWrap"></div>
+  <div class="panel-title">Table Preview <span id="previewCount"></span> · <span style="color:var(--dim);font-size:10px">Click cells to edit · Hover desc for crop · 🔊 read aloud</span></div>
+  <div id="minimapWrap">
+    <div class="table-wrap" id="tableWrap" style="flex:1;min-width:0;"></div>
+    <div id="minimap" title="Click to navigate"></div>
+  </div>
   <div class="actions">
     <button id="dlXlsx" class="secondary" disabled>Download Excel (.xlsx)</button>
     <button id="dlDebugJSON" onclick="exportDebugJSON()" disabled style="background: #8b5cf6;">📊 Export Debug Data</button>
   </div>
 </div>
 
+<div id="vizPanel" class="panel hidden">
+  <div class="panel-title">Page Viewer <span id="vizWordCount" style="font-weight:normal;color:var(--dim)"></span></div>
+  <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;flex-wrap:wrap;">
+    <button id="vizPrev" onclick="vizNav(-1)" style="padding:4px 14px;font-size:13px;">◀</button>
+    <span id="vizPageLabel" style="font-size:13px;min-width:80px;text-align:center;">Page 1</span>
+    <button id="vizNext" onclick="vizNav(+1)" style="padding:4px 14px;font-size:13px;">▶</button>
+    <label style="font-size:11px;color:var(--dim);display:flex;align-items:center;gap:4px;">
+      <input type="checkbox" id="vizShowBoxes" checked onchange="renderVizPage()"> Show word boxes
+    </label>
+    <label style="font-size:11px;color:var(--dim);display:flex;align-items:center;gap:4px;">
+      <input type="checkbox" id="vizColorConf" onchange="renderVizPage()"> Color by confidence
+    </label>
+    <label style="font-size:11px;color:var(--dim);display:flex;align-items:center;gap:4px;">
+      <input type="checkbox" id="vizShowText" onchange="renderVizPage()"> Show text labels
+    </label>
+  </div>
+  <div style="overflow:auto;border:1px solid var(--border);border-radius:6px;max-height:680px;">
+    <canvas id="vizCanvas" style="display:block;"></canvas>
+  </div>
+  <div style="margin-top:6px;font-size:10px;color:var(--dim);">
+    Blue = PaddleOCR (numeric) · Green = VietOCR (text) · Amber = medium conf · Red = low conf
+  </div>
+</div>
+
+<script src="boq-utils.js"></script>
+<script src="boq-viet.js"></script>
+<script src="boq-ocr.js"></script>
+<script src="boq-extract.js"></script>
+<script src="boq-ui.js"></script>
+<script src="boq-review.js"></script>
+<script src="boq-viz.js"></script>
+<script src="boq-export.js"></script>
 <script>
 // ── Config ──
 const LINE_TOLERANCE = 3;    // points: snap lines within this distance
 const MIN_LINE_LEN = 10;     // ignore lines shorter than this
 const CELL_PAD = 1.5;        // inset for text-in-cell matching
-const OCR_SCALE = 400 / 72;  // render at 400 DPI for OCR (higher quality)
+const OCR_SCALE = 200 / 72;  // render at 200 DPI — PaddleOCR's max_side_limit is 4000px; 400 DPI exceeds it and gets resized down anyway
+const CELL_MATCH_MARGIN_PX   = 30;   // expand cell bbox for OCR inaccuracy tolerance
+const ORPHAN_NEAREST_CELL_PX = 100;  // max center-to-center distance for fallback assignment
+const ROW_Y_THRESHOLD_PX     = 10;   // vertical tolerance to group words into the same row
 
 pdfjsLib.GlobalWorkerOptions.workerSrc =
   'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
 
+// ── Auth ──
+function getAuthToken()  { return localStorage.getItem('ocr_auth_token') || ''; }
+function authHeaders()   { const t = getAuthToken(); return t ? { 'Authorization': `Bearer ${t}` } : {}; }
+function clearAuthToken() {
+  localStorage.removeItem('ocr_auth_token');
+  document.getElementById('authOverlay').style.display = 'flex';
+  document.getElementById('authToken').value = '';
+  document.getElementById('authError').textContent = '';
+}
+function submitAuth() {
+  const val = document.getElementById('authToken').value.trim();
+  if (!val) { document.getElementById('authError').textContent = 'Token cannot be empty.'; return; }
+  localStorage.setItem('ocr_auth_token', val);
+  document.getElementById('authOverlay').style.display = 'none';
+  checkOCRServer();  // re-probe server with new token
+}
+// Show overlay if no token stored
+if (!getAuthToken()) {
+  document.getElementById('authOverlay').style.display = 'flex';
+  setTimeout(() => document.getElementById('authToken').focus(), 100);
+} else {
+  document.getElementById('authOverlay').style.display = 'none';
+}
 // ── State ──
 let extractedRows = [];
 let tesseractWorker = null;
 let tesseractInitializing = false; // SECURITY FIX #4: Prevent race condition
 let currentOCRPage = 0;
 let totalPDFPages = 0;
+let opencvReady = false;
+let syllableCorrector = null;
+let pdfDoc = null;          // stored for page viewer
+let vizCurrentPage = 1;     // page viewer current page
+const VIZ_SCALE = 150 / 72; // ~150 DPI for visualization
+
+// ── Review / Flag State ──
+let rowFlags    = {};  // rowIdx → [{type,message,severity,cellIdx}]
+let flagList    = [];  // flat sorted [{rowIdx,type,message,severity,cellIdx}]
+let currFlagIdx = -1;
 
 // ── Debug Data (for bbox visualization) ──
 let debugData = {
@@ -257,8 +391,23 @@ window.getOptimizationReport = () => {
 
   return report;
 };
-let syllableCorrector = null;
 let processingCancelled = false;
+// ── OpenCV.js Initialization ──
+function onOpenCvReady() {
+  if (typeof cv !== 'undefined') {
+    // Check if OpenCV is already initialized
+    if (typeof cv.imread === 'function') {
+      opencvReady = true;
+      log('✓ OpenCV.js loaded (6MB, WebAssembly)', 'ok');
+    } else {
+      // Set up callback for when it initializes
+      cv['onRuntimeInitialized'] = () => {
+        opencvReady = true;
+        log('✓ OpenCV.js loaded (6MB, WebAssembly)', 'ok');
+      };
+    }
+  }
+}
 
 // VPS API Configuration
 // SECURITY FIX #5: Make VPS API URL configurable instead of hardcoded
@@ -267,6 +416,42 @@ const VPS_API_URL = localStorage.getItem('vps_api_url') || DEFAULT_VPS_API_URL;
 let vpsApiAvailable = null; // null = unknown, true = working, false = offline
 let diacriticCache = {}; // In-memory cache for this session
 
+// Hybrid OCR server (PaddleOCR detection + EasyOCR Vietnamese recognition)
+// Use the same host the page was served from so it works via IP (e.g. http://ip:8080/new.html)
+const OCR_SERVER_URL = `http://${window.location.hostname || 'localhost'}:5000`;
+let ocrServerAvailable = null; // null = untested, true = online, false = offline
+
+// Re-probe OCR server (called after auth token changes)
+async function checkOCRServer() {
+  ocrServerAvailable = null;
+  const badge = document.getElementById('ocrBackendBadge');
+  try {
+    const r = await fetch(`${OCR_SERVER_URL}/health`, {
+      headers: authHeaders(),
+      signal: AbortSignal.timeout(4000)
+    });
+    if (r.ok) {
+      ocrServerAvailable = true;
+      if (badge) { badge.textContent = '🟢 PaddleOCR + EasyOCR (server)'; badge.style.color = '#22c55e'; }
+    } else { throw new Error(`HTTP ${r.status}`); }
+  } catch {
+    if (badge) { badge.textContent = `🟡 Tesseract.js fallback (${OCR_SERVER_URL} unreachable)`; badge.style.color = '#f59e0b'; }
+  }
+}
+
+// Probe the OCR server immediately at page load so the badge shows correct status
+(async function probeServer() {
+  const badge = document.getElementById('ocrBackendBadge');
+  try {
+    const r = await fetch(`${OCR_SERVER_URL}/health`, { signal: AbortSignal.timeout(4000) });
+    if (r.ok) {
+      ocrServerAvailable = true;
+      if (badge) { badge.textContent = '🟢 PaddleOCR + EasyOCR (server)'; badge.style.color = '#22c55e'; }
+    } else { throw new Error(`HTTP ${r.status}`); }
+  } catch {
+    if (badge) { badge.textContent = `🟡 Tesseract.js fallback (${OCR_SERVER_URL} unreachable)`; badge.style.color = '#f59e0b'; }
+  }
+})();
 // ── UI Refs ──
 const $ = id => document.getElementById(id);
 const dropzone = $('dropzone');
@@ -296,7 +481,7 @@ async function loadSamplePDF() {
     await handleFile(file);
   } catch (err) {
     log(`❌ Error loading sample: ${err.message}`, 'err');
-    alert('Sample PDF not found.\n\nPlease upload your own Vietnamese BOQ PDF file.');
+    alert('Sample PDF not found.\n\nPlease upload your own PDF file.');
   }
 }
 
@@ -359,10 +544,10 @@ async function handleFile(file) {
     $('progressPanel').classList.add('hidden');
   }
 }
-
 // ── Core Pipeline ──
 async function extractPDF(buffer) {
   const pdf = await pdfjsLib.getDocument({ data: buffer }).promise;
+  pdfDoc = pdf;  // store for page viewer
   const numPages = pdf.numPages;
   totalPDFPages = numPages; // Set global for fine-grained progress updates
   log(`PDF loaded: ${numPages} pages`, 'ok');
@@ -380,19 +565,24 @@ async function extractPDF(buffer) {
   let totalOps = 0;
   let allOcrWords = [];
   let allOcrLines = [];
+  let allBorderCells = [];
+  const pageCanvases = {};   // page → canvas, kept for per-cell re-OCR
+  window._pageCanvases = pageCanvases;  // expose for crop popover + re-OCR
   let ocrPageCount = 0;
   let totalConfidence = 0;
   let totalOcrWords = 0;
 
+  // Sequential per-page loop: render → border → OCR → accumulate.
+  // True parallelism requires a multi-worker server (gunicorn); single-worker
+  // Flask with a threading.Lock serialises inference anyway so pipeline offers no gain.
+
   for (let p = 1; p <= numPages; p++) {
-    // Check for cancellation
     if (processingCancelled) {
       log('⛔ Processing cancelled', 'warn');
       $('progressPanel').classList.add('hidden');
       return;
     }
 
-    // Progress bar now updated by Tesseract logger with fine-grained progress
     $('progressText').textContent = `Processing page ${p} of ${numPages}...`;
     const page = await pdf.getPage(p);
     const vp = page.getViewport({ scale: 1.0 });
@@ -418,7 +608,6 @@ async function extractPDF(buffer) {
       allLines.push(...pageLines);
     } else {
       // Image-based page: OCR
-      // SECURITY FIX #4: Prevent race condition in worker initialization
       if (!tesseractWorker && !tesseractInitializing) {
         tesseractInitializing = true;
         log('Initializing Tesseract OCR (Vietnamese tessdata_best)...', 'warn');
@@ -431,39 +620,87 @@ async function extractPDF(buffer) {
           tesseractInitializing = false;
         }
       }
-      // Wait for initialization if another page is already initializing
       while (tesseractInitializing && !tesseractWorker) {
         await new Promise(resolve => setTimeout(resolve, 100));
       }
 
-      if (!syllableCorrector) {
-        log('Loading n-gram model...', 'warn');
-        syllableCorrector = await initSyllableCorrector();
-      }
-
       perfStart(`Page ${p}: renderCanvas`);
       const canvas = await renderPageToCanvas(page, OCR_SCALE);
+      pageCanvases[p] = canvas;
       perfEnd(`Page ${p}: renderCanvas`);
 
-      // Bbox visualization now uses PDF buffer directly (no toDataURL needed)
+      let borderData = { cells: [], lines: { horizontal: [], vertical: [] } };
+      if (opencvReady) {
+        perfStart(`Page ${p}: Border detection`);
+        borderData = await detectTableBorders(canvas);
+        perfEnd(`Page ${p}: Border detection`);
+      }
 
       perfStart(`Page ${p}: OCR`);
-      currentOCRPage = p; // Set for fine-grained progress updates
-      const ocrResult = await ocrPage(canvas, p);
-      perfEnd(`Page ${p}: OCR`);
-      ocrPageCount++;
+      currentOCRPage = p;
 
-      const pageWords = ocrResult.words;
-      const pageOcrLines = ocrResult.lines;
-      totalOcrWords += pageWords.length;
-      const pageConf = pageWords.length > 0
-        ? pageWords.reduce((s, w) => s + w.confidence, 0) / pageWords.length
-        : 0;
-      totalConfidence += pageConf * pageWords.length;
+      try {
+        let ocrResult;
+        if (ocrServerAvailable !== false) {
+          try {
+            ocrResult = await ocrPageWithServer(canvas, p);
+            if (ocrServerAvailable === null) {
+              log(`✓ Hybrid OCR server online — using PaddleOCR + EasyOCR Vietnamese`, 'ok');
+              const badge = document.getElementById('ocrBackendBadge');
+              if (badge) { badge.textContent = '🟢 PaddleOCR + EasyOCR (server)'; badge.style.color = '#22c55e'; }
+            }
+            ocrServerAvailable = true;
+          } catch (serverErr) {
+            const isConnErr = serverErr.name === 'TypeError' || serverErr.message.includes('fetch');
+            if (isConnErr) {
+              // Server unreachable — switch permanently to Tesseract fallback
+              if (ocrServerAvailable === null) {
+                log(`Hybrid OCR server offline (${serverErr.message}), using Tesseract`, 'warn');
+                const badge = document.getElementById('ocrBackendBadge');
+                if (badge) { badge.textContent = `🟡 Tesseract.js fallback (server at ${OCR_SERVER_URL} unreachable)`; badge.style.color = '#f59e0b'; }
+              }
+              ocrServerAvailable = false;
+              ocrResult = await ocrPageWithTimeout(canvas, p, 30000);
+            } else {
+              // Server error on this page (HTTP 5xx, abort, crash) — skip page, keep trying server
+              log(`  ⚠️ Page ${p}: server error (${serverErr.message}), skipping`, 'warn');
+              ocrResult = { words: [], lines: [] };
+            }
+          }
+        } else {
+          ocrResult = await ocrPageWithTimeout(canvas, p, 30000);
+        }
+        perfEnd(`Page ${p}: OCR`);
+        ocrPageCount++;
 
-      log(`  Page ${p}: ${pageWords.length} OCR words, ${pageOcrLines.length} lines (avg conf: ${pageConf.toFixed(1)}%)`);
-      allOcrWords.push(...pageWords);
-      allOcrLines.push(...pageOcrLines);
+        const pageWords = ocrResult.words;
+        const pageOcrLines = ocrResult.lines;
+        totalOcrWords += pageWords.length;
+        const pageConf = pageWords.length > 0
+          ? pageWords.reduce((s, w) => s + w.confidence, 0) / pageWords.length
+          : 0;
+        totalConfidence += pageConf * pageWords.length;
+
+        log(`  Page ${p}: ${pageWords.length} OCR words, ${pageOcrLines.length} lines (avg conf: ${pageConf.toFixed(1)}%)`, 'ok');
+        allOcrWords.push(...pageWords);
+        allOcrLines.push(...pageOcrLines);
+
+        if (borderData && borderData.cells.length > 0) {
+          allBorderCells.push(...borderData.cells.map(cell => ({
+            x: cell.x / OCR_SCALE,
+            y: cell.y / OCR_SCALE,
+            width: cell.width / OCR_SCALE,
+            height: cell.height / OCR_SCALE,
+            area: cell.area / (OCR_SCALE * OCR_SCALE),
+            page: p
+          })));
+        }
+      } catch (error) {
+        perfEnd(`Page ${p}: OCR`);
+        log(`  ⚠️ Page ${p}: OCR TIMEOUT after 30s - ${error.message}`, 'err');
+        console.error(`[OCR TIMEOUT] Page ${p}:`, error);
+        continue;
+      }
     }
 
     page.cleanup();
@@ -475,8 +712,12 @@ async function extractPDF(buffer) {
   let rows;
   if (allOcrWords.length > 0) {
     log(`OCR total: ${allOcrWords.length} words across ${ocrPageCount} pages`, 'ok');
+    if (allBorderCells.length > 0) {
+      log(`Border detection: ${allBorderCells.length} cells detected`, 'ok');
+      window._debugBorderCells = allBorderCells;
+    }
     perfStart('Table extraction');
-    rows = await ocrTableExtract(allOcrLines, allOcrWords);
+    rows = await ocrTableExtract(allOcrLines, allOcrWords, allBorderCells, pageCanvases);
     perfEnd('Table extraction');
   } else if (allLines.length > 20) {
     log('Using LATTICE mode (lines detected)', 'ok');
@@ -490,13 +731,46 @@ async function extractPDF(buffer) {
     perfEnd('Text cluster extraction');
   }
 
+  console.log(`[extractPDF] Extraction returned ${rows ? rows.length : 'null'} rows`);
   $('pbar').style.width = '95%';
   extractedRows = rows;
+  window.extractedRows = rows;  // expose for console/rodney access
 
+  // AUTO-EXPORT CSV for verification - save to file instead of console
+  setTimeout(function() {
+    console.log('[CSV_EXPORT] Generating CSV...');
+    var csv = 'STT,Mô tả công việc,Đvt,Khối lượng,Đơn giá (đồng),Thành tiền (đồng),Page\n';
+    for (var i = 0; i < extractedRows.length; i++) {
+      var row = extractedRows[i];
+      var vals = [];
+      for (var c = 0; c < 6; c++) {
+        var cell = row.cells[c];
+        var val = '';
+        if (cell) {
+          val = (typeof cell === 'object') ? (cell.value || '') : (cell || '');
+          val = String(val).replace(/"/g, '""').replace(/\n/g, ' ');
+        }
+        vals.push('"' + val + '"');
+      }
+      vals.push(row.page || ''); // Add page number
+      csv += vals.join(',') + '\n';
+    }
+
+    // Download CSV file
+    var blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8;' });
+    var link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = 'extracted_full_11_pages.csv';
+    link.click();
+    console.log('[CSV_EXPORT] Downloaded: extracted_full_11_pages.csv (' + extractedRows.length + ' rows)');
+  }, 3000);
+
+  console.log(`[extractPDF] Filtering rows by type...`);
   const dataRows = rows.filter(r => r.type === 'data').length;
   const sectionRows = rows.filter(r => r.type === 'section').length;
   const avgConf = totalOcrWords > 0 ? (totalConfidence / totalOcrWords).toFixed(1) : null;
 
+  console.log(`[extractPDF] Calling showStats with ${rows.length} rows...`);
   showStats({
     pages: numPages,
     ocrWords: totalOcrWords,
@@ -530,1443 +804,12 @@ async function extractPDF(buffer) {
   setTimeout(() => $('progressPanel').classList.add('hidden'), 500);
 }
 
-// ── Tesseract OCR Functions ──
-async function initTesseract() {
-  let currentPage = null;
-  const worker = await Tesseract.createWorker('vie', 1, {
-    langPath: 'https://cdn.jsdelivr.net/gh/tesseract-ocr/tessdata_best',  // Use tessdata_best models (higher accuracy)
-    gzip: false,  // tessdata_best files are not gzipped
-    logger: m => {
-      // Detailed profiling of Tesseract stages
-      if (m.status === 'loading language traineddata') {
-        perfStart('Tesseract: load traineddata');
-        log(`Loading tessdata_best Vietnamese model...`, 'warn');
-      } else if (m.status === 'loaded language traineddata') {
-        perfEnd('Tesseract: load traineddata');
-      } else if (m.status === 'initializing tesseract') {
-        perfStart('Tesseract: initialize engine');
-      } else if (m.status === 'initialized tesseract') {
-        perfEnd('Tesseract: initialize engine');
-      } else if (m.status === 'recognizing text') {
-        const pageLabel = `Tesseract: recognize page ${currentPage}`;
-        if (!perfTimings[pageLabel]) {
-          perfStart(pageLabel);
-        }
-        // Update progress bar with fine-grained OCR progress
-        if (m.progress !== undefined && totalPDFPages > 0) {
-          // Calculate overall progress:
-          // - Each page gets 80% / totalPages of the bar
-          // - Within each page, show progress from 0% to 100%
-          const pageWeight = 80 / totalPDFPages;
-          const completedPages = currentOCRPage - 1; // 0-indexed, so page 1 is index 0
-          const baseProgress = (completedPages / totalPDFPages) * 80;
-          const pageProgress = (m.progress * pageWeight);
-          const totalProgress = Math.min(baseProgress + pageProgress, 80);
-
-          $('pbar').style.width = `${totalProgress.toFixed(1)}%`;
-
-          if (m.progress < 1) {
-            const progressPct = (m.progress * 100).toFixed(0);
-            $('progressText').textContent = `Processing page ${currentPage} of ${totalPDFPages}... (${progressPct}%)`;
-          }
-        }
-      } else if (m.status === 'recognized text') {
-        const pageLabel = `Tesseract: recognize page ${currentPage}`;
-        perfEnd(pageLabel);
-      }
-    }
-  });
-
-  // Store reference to update current page
-  worker._currentPage = 0;
-  const originalRecognize = worker.recognize.bind(worker);
-  worker.recognize = async function(...args) {
-    currentPage = worker._currentPage++;
-    return originalRecognize(...args);
-  };
-
-  // Configure Tesseract for better Vietnamese recognition
-  await worker.setParameters({
-    tessedit_pageseg_mode: '3',  // Fully automatic page segmentation (no OSD)
-    tessedit_ocr_engine_mode: '1', // Neural nets LSTM engine only
-    preserve_interword_spaces: '1'
-  });
-
-  return worker;
-}
-
-async function initSyllableCorrector() {
-  const corrector = new VietnameseSyllableCorrector();
-  const loaded = await corrector.loadModel('vn_syllable_model.json');
-  if (loaded) {
-    log('Syllable language model loaded successfully', 'ok');
-  } else {
-    log('Warning: Syllable model failed to load, using dictionary only', 'warn');
-  }
-  return corrector;
-}
-
-async function renderPageToCanvas(page, scale) {
-  const vp = page.getViewport({ scale });
-  const canvas = document.createElement('canvas');
-  canvas.width = vp.width;
-  canvas.height = vp.height;
-  const ctx = canvas.getContext('2d');
-
-  // Render the page with high quality
-  await page.render({ canvasContext: ctx, viewport: vp }).promise;
-
-  // No preprocessing - Tesseract works better with original high-DPI images
-  return canvas;
-}
-
-async function ocrPage(canvas, pageNum) {
-  const { data } = await tesseractWorker.recognize(canvas);
-  const s = OCR_SCALE;
-
-  const words = data.words
-    .filter(w => w.text.trim() && w.confidence > 30)
-    .map(w => ({
-      text: w.text.trim(),
-      x: w.bbox.x0 / s,
-      y: w.bbox.y0 / s,
-      x1: w.bbox.x1 / s,
-      y1: w.bbox.y1 / s,
-      width: (w.bbox.x1 - w.bbox.x0) / s,
-      height: (w.bbox.y1 - w.bbox.y0) / s,
-      confidence: w.confidence,
-      page: pageNum
-    }));
-
-  const lines = data.lines
-    .filter(l => l.text.trim())
-    .map(l => ({
-      text: l.text.trim(),
-      x: l.bbox.x0 / s,
-      y: l.bbox.y0 / s,
-      x1: l.bbox.x1 / s,
-      y1: l.bbox.y1 / s,
-      words: l.words.filter(w => w.text.trim()).map(w => ({
-        text: w.text.trim(),
-        x: w.bbox.x0 / s,
-        y: w.bbox.y0 / s,
-        x1: w.bbox.x1 / s,
-        y1: w.bbox.y1 / s,
-        confidence: w.confidence
-      })),
-      confidence: l.confidence,
-      page: pageNum
-    }));
-
-  return { words, lines };
-}
-
-// ── Vietnamese Dictionary & Spell Correction ──
-const DEFAULT_VIETNAMESE_DICT = `
-và các của có trong không được này để là cho với một khi như đã từ về sau theo
-tại nên đến nếu thì sẽ bị vì hay nhưng lại chỉ còn vào ra ngoài trên dưới giữa
-bên cạnh gần xa đây đó những người thời gian năm tháng ngày tuần kỳ hàng
-cũng đều phải nữa thêm khác cùng nhau mình ta anh em ông bà chị
-số lần lượt loại hình dạng màu sắc chất liệu vật chất liệu phẩm
-điểm yếu điều khoản quan trọng tố chính phụ thêm bớt tăng giảm
-đào phá phui mương ống bằng thủ công máy đất cấp đấp cát đầm chặt nền nén ép
-bê tông xi măng vữa gạch đá sỏi kết cấu mặt đường nhựa lớp ván khuôn đổ phụ tùng thép
-lắp đặt nước van khuỷu manchon bù nối khóa công việc khối lượng đơn giá thành tiền tổng
-mô tả đơn vị tính mét vuông khối kilogram tấn trăm ngàn triệu tỷ đồng viên chiếc cái
-tháo dỡ xây dựng cải tạo thay thế sửa chữa gia cố trải rải rót chuyển vận đổ bơm
-biểu giá hợp đồng gói thầu dự án thi công vật tư thiết bị nhân cộng phần mục tiểu
-xúc đấp đắp lèn lắp ghép ráp cốt pha thép trát tô trét quét sơn ốp lát dán
-tuyến đoạn trạm trung tâm khu vực địa phương phường quận huyện tỉnh thành phố
-điện chiếu sáng cấp điện hạ thế trung thế cao thế động lực điện dân dụng
-điện lực điện năng điện công suất điện áp điện trở dây dẫn cáp điện đường dây
-theo tính toán kế hoạch thi thể hiện thực hiện hoàn thành kết quả
-cao thấp rộng hẹp dài ngắn sâu nông dày mỏng lớn nhỏ to nhỏ
-tốt xấu đẹp tệ nhanh chậm mạnh yếu mới cũ mất còn đủ thiếu đầy
-đúng sai chuẩn chính xác gần đúng khoảng chừng ước tính dự kiến
-trước sau trái phải giữa bên trong ngoài đông tây nam bắc
-một hai ba bốn năm sáu bảy tám chín mười mười một mười hai mười lăm hai mươi
-ba mươi bốn mươi năm mươi sáu mươi bảy mươi tám mươi chín mươi trăm nghìn
-centimet milimét kilomét tấn lít vuông khối mét
-phá bỏ dỡ bỏ phá hủy khoan khoét cắt xén bẻ gãy đập vỡ
-xây nề lên tường vách trần nền móng cột dầm sàn mái
-cửa cổng lan can tay vịn bậc thang bậc cấp nấc thềm
-điện nước thoát cống rãnh mương kênh hố giếng bể bồn
-ren ống thẳng ống cong ống nối ống tê ống chữ ống chữ nối tê
-khớp nối đầu nối bích mặt bích ống góc ống giảm đầu giảm co
-van khóa van bi van bướm van cầu van công van một van chiều van chặn
-đồng hồ đồng hồ đo đồng hồ nước đồng hồ điện công tơ điện
-sơn nước sơn dầu sơn véc véc ni keo dán keo chà keo trộn
-cát vàng cát trắng cát xây cát đổ đá dăm đá mi đá hộc sỏi rải
-thép tròn thép hình thép chữ thép góc thép ray thép chữ thép vuông
-gạch đỏ gạch ống gạch block gạch không nung đá ốp đá lát
-bảng kê giá vật liệu xây dựng dự án nhà ở cao tầng địa điểm
-tên đơn vị số lượng đvt tấn viên xi măng sắt gạch đồng tâm hòa phát
-`.trim().split(/\s+/);
-
-// Load custom words from localStorage
-function loadCustomWords() {
-  try {
-    const stored = localStorage.getItem('vietocr_custom_dict');
-    return stored ? JSON.parse(stored) : [];
-  } catch (e) {
-    console.error('Failed to load custom dictionary:', e);
-    return [];
-  }
-}
-
-// Save custom words to localStorage
-function saveCustomWords(words) {
-  try {
-    localStorage.setItem('vietocr_custom_dict', JSON.stringify(words));
-  } catch (e) {
-    console.error('Failed to save custom dictionary:', e);
-  }
-}
-
-// Build combined dictionary (default + custom)
-function buildDictionary() {
-  const customWords = loadCustomWords();
-  const allWords = [...DEFAULT_VIETNAMESE_DICT, ...customWords];
-  return new Set(allWords.map(w => w.toLowerCase()));
-}
-
-// Initialize dictionary
-let VIETNAMESE_DICT = buildDictionary();
-
-// Update UI with custom word count
-function updateCustomWordsUI() {
-  const customWords = loadCustomWords();
-  document.getElementById('customCount').textContent = customWords.length;
-  document.getElementById('customWordsList').textContent =
-    customWords.length > 0 ? customWords.join(', ') : 'none';
-}
-
-// Add custom word
-function addCustomWord() {
-  const input = document.getElementById('customWord');
-  const word = input.value.trim().toLowerCase();
-
-  if (!word) {
-    alert('Please enter a word');
-    return;
-  }
-
-  const customWords = loadCustomWords();
-
-  // Check if already exists
-  if (customWords.includes(word) || DEFAULT_VIETNAMESE_DICT.includes(word)) {
-    alert('Word already in dictionary');
-    input.value = '';
-    return;
-  }
-
-  // Add word
-  customWords.push(word);
-  saveCustomWords(customWords);
-
-  // Rebuild dictionary
-  VIETNAMESE_DICT = buildDictionary();
-
-  // Update UI
-  updateCustomWordsUI();
-  input.value = '';
-
-  log(`Added custom word: ${word}`, 'ok');
-}
-
-// Clear all custom words
-function clearCustomWords() {
-  if (!confirm('Clear all custom words? This cannot be undone.')) {
-    return;
-  }
-
-  saveCustomWords([]);
-  VIETNAMESE_DICT = buildDictionary();
-  updateCustomWordsUI();
-  log('Custom dictionary cleared', 'warn');
-}
-
-// Export custom dictionary
-function exportCustomDict() {
-  const customWords = loadCustomWords();
-  const json = JSON.stringify(customWords, null, 2);
-  const blob = new Blob([json], { type: 'application/json' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = 'vietocr-custom-dictionary.json';
-  a.click();
-  URL.revokeObjectURL(url);
-  log('Custom dictionary exported', 'ok');
-}
-
-// Import custom dictionary
-function importCustomDict() {
-  const input = document.createElement('input');
-  input.type = 'file';
-  input.accept = '.json';
-  input.onchange = (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      try {
-        const imported = JSON.parse(event.target.result);
-        if (!Array.isArray(imported)) {
-          alert('Invalid format: expected array of words');
-          return;
-        }
-
-        // SECURITY FIX #1: Sanitize imported words to prevent XSS
-        const sanitized = imported.filter(word => {
-          // Only allow Vietnamese letters, numbers, spaces, and hyphens, max 50 chars
-          if (typeof word !== 'string' || word.length === 0 || word.length > 50) {
-            return false;
-          }
-          // Vietnamese alphanumeric + common punctuation only
-          return /^[\wàáảãạâấầẩẫậăắằẳẵặèéẻẽẹêếềểễệìíỉĩịòóỏõọôốồổỗộơớờởỡợùúủũụưứừửữựỳýỷỹỵđÀÁẢÃẠÂẤẦẨẪẬĂẮẰẲẴẶÈÉẺẼẸÊẾỀỂỄỆÌÍỈĨỊÒÓỎÕỌÔỐỒỔỖỘƠỚỜỞỠỢÙÚỦŨỤƯỨỪỬỮỰỲÝỶỸỴĐ\s\-\.]+$/.test(word);
-        });
-
-        const customWords = loadCustomWords();
-        const merged = [...new Set([...customWords, ...sanitized])];
-
-        saveCustomWords(merged);
-        VIETNAMESE_DICT = buildDictionary();
-        updateCustomWordsUI();
-
-        const rejected = imported.length - sanitized.length;
-        if (rejected > 0) {
-          log(`Imported ${sanitized.length} words (${rejected} rejected for safety)`, 'warn');
-        } else {
-          log(`Imported ${sanitized.length} words (${merged.length - customWords.length} new)`, 'ok');
-        }
-      } catch (err) {
-        alert('Failed to import: ' + err.message);
-      }
-    };
-    reader.readAsText(file);
-  };
-  input.click();
-}
-
-function levenshteinDist(a, b) {
-  // SECURITY FIX #3: Prevent DoS with unbounded strings (O(n²) memory/CPU)
-  const MAX_LENGTH = 100;
-  if (a.length > MAX_LENGTH || b.length > MAX_LENGTH) {
-    return 999; // Return high distance for overly long strings
-  }
-
-  const m = [], al = a.length, bl = b.length;
-  for (let i = 0; i <= bl; i++) m[i] = [i];
-  for (let j = 0; j <= al; j++) m[0][j] = j;
-  for (let i = 1; i <= bl; i++) {
-    for (let j = 1; j <= al; j++) {
-      m[i][j] = b[i-1] === a[j-1] ? m[i-1][j-1] :
-                Math.min(m[i-1][j-1] + 1, m[i][j-1] + 1, m[i-1][j] + 1);
-    }
-  }
-  return m[bl][al];
-}
-
-function removeDiacritics(str) {
-  return str.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd').replace(/Đ/g, 'D');
-}
-
-function correctWord(word) {
-  // DISABLED: Return original word without any corrections
-  return word;
-}
-
-// ── VPS Diacritic Restoration API ──
-function loadDiacriticCache() {
-  try {
-    const stored = localStorage.getItem('viet_diacritic_cache');
-    return stored ? JSON.parse(stored) : {};
-  } catch (e) {
-    console.error('Failed to load diacritic cache:', e);
-    return {};
-  }
-}
-
-function saveDiacriticCache() {
-  try {
-    localStorage.setItem('viet_diacritic_cache', JSON.stringify(diacriticCache));
-  } catch (e) {
-    // FIX Bug #6: Handle localStorage quota errors gracefully
-    if (e.name === 'QuotaExceededError') {
-      console.warn('Cache quota exceeded, clearing old entries');
-      const entries = Object.entries(diacriticCache);
-      diacriticCache = Object.fromEntries(entries.slice(-500)); // Keep newest 500
-      try {
-        localStorage.setItem('viet_diacritic_cache', JSON.stringify(diacriticCache));
-        console.log('Cache trimmed and saved successfully');
-      } catch (e2) {
-        console.error('Cache still too large, running without persistence');
-      }
-    } else {
-      console.error('Failed to save diacritic cache:', e);
-    }
-  }
-}
-
-async function restoreVietnameseVPS(text) {
-  // DISABLED: Return null to signal no VPS correction available
-  return null;
-}
-
-async function correctVietnameseText(text) {
-  // DISABLED: Return original text without any corrections
-  return text;
-
-  // Stage 0: Post-processing (spacing, case normalization)
-  if (typeof postProcessVietnameseText !== 'undefined') {
-    text = postProcessVietnameseText(text);
-  }
-
-  // Stage 1: VPS API (best accuracy, domain-agnostic)
-  const vpsResult = await restoreVietnameseVPS(text);
-  if (vpsResult !== null) {
-    return vpsResult;
-  }
-
-  // Stage 2: Dictionary-based correction (fast, simple)
-  // SECURITY FIX #2: Prevent ReDoS with simplified regex and length check
-  const vnChar = '[\\wàáảãạâấầẩẫậăắằẳẵặèéẻẽẹêếềểễệìíỉĩịòóỏõọôốồổỗộơớờởỡợùúủũụưứừửữựỳýỷỹỵđ]';
-  const nonVn = '[^\\wàáảãạâấầẩẫậăắằẳẵặèéẻẽẹêếềểễệìíỉĩịòóỏõọôốồổỗộơớờởỡợùúủũụưứừửữựỳýỷỹỵđ]';
-  const vnWordPattern = new RegExp(`^(${nonVn}*)(${vnChar}+)(${nonVn}*)$`, 'i');
-
-  let stage2 = text.split(/\s+/).map(w => {
-    // Prevent ReDoS: reject overly long words
-    if (w.length > 100) return w;
-    const m = w.match(vnWordPattern);
-    if (!m) return w;
-    return m[1] + correctWord(m[2]) + m[3];
-  }).join(' ');
-
-  // Stage 3: Syllable model correction (domain-agnostic fallback)
-  if (syllableCorrector && syllableCorrector.ready) {
-    try {
-      // FIX Bug #8: Wrap external library call in try-catch
-      return syllableCorrector.correctText(stage2);
-    } catch (error) {
-      console.error('Syllable corrector failed:', error);
-      return stage2; // Fallback to dictionary-only result
-    }
-  }
-
-  return stage2;
-}
-
-// Helper: Convert string value to cell metadata object
-async function createCellMetadata(value, avgOcrConfidence, colIndex) {
-  if (!value || value === '') {
-    return {
-      value: '',
-      original: '',
-      confidence: 0,
-      source: 'empty',
-      correctedBy: null,
-      type: classifyCellType('', colIndex),
-      edited: false
-    };
-  }
-
-  const original = value;
-
-  // DISABLED: Use original OCR without corrections
-  // User reported OCR is already correct (e.g., "CHỦ NGHĨA VIỆT NAM")
-  // Auto-correction was making it worse
-  return {
-    value: original,
-    original: original,
-    confidence: avgOcrConfidence,
-    source: 'ocr',
-    correctedBy: null,
-    type: classifyCellType(original, colIndex),
-    edited: false
-  };
-}
-
-// ── Line Extraction from pdf.js Operator List ──
-function extractLines(opList, pageH, pageNum) {
-  const OPS = pdfjsLib.OPS;
-  const lines = [];
-  let cx = 0, cy = 0;
-
-  for (let i = 0; i < opList.fnArray.length; i++) {
-    const fn = opList.fnArray[i];
-    const args = opList.argsArray[i];
-
-    if (fn === OPS.constructPath) {
-      const pathOps = args[0];
-      const coords = args[1];
-      let ci = 0, px = 0, py = 0;
-      for (const op of pathOps) {
-        if (op === 0) { // moveTo
-          px = coords[ci++]; py = coords[ci++];
-        } else if (op === 1) { // lineTo
-          const nx = coords[ci++], ny = coords[ci++];
-          const len = Math.hypot(nx - px, ny - py);
-          if (len >= MIN_LINE_LEN) {
-            lines.push({ x0: px, y0: pageH - py, x1: nx, y1: pageH - ny, page: pageNum });
-          }
-          px = nx; py = ny;
-        } else if (op === 2) { ci += 6; } // curveTo: skip
-        else if (op === 3) { /* closePath */ }
-      }
-    }
-
-    if (fn === OPS.rectangle && args.length >= 4) {
-      const [x, y, w, h] = args;
-      // Rectangles produce 4 lines
-      if (Math.abs(w) >= MIN_LINE_LEN) {
-        lines.push({ x0: x, y0: pageH - y, x1: x + w, y1: pageH - y, page: pageNum });
-        lines.push({ x0: x, y0: pageH - (y + h), x1: x + w, y1: pageH - (y + h), page: pageNum });
-      }
-      if (Math.abs(h) >= MIN_LINE_LEN) {
-        lines.push({ x0: x, y0: pageH - y, x1: x, y1: pageH - (y + h), page: pageNum });
-        lines.push({ x0: x + w, y0: pageH - y, x1: x + w, y1: pageH - (y + h), page: pageNum });
-      }
-    }
-
-    // Individual path ops (some pdf.js versions)
-    if (fn === OPS.moveTo) { cx = args[0]; cy = args[1]; }
-    if (fn === OPS.lineTo) {
-      const len = Math.hypot(args[0] - cx, args[1] - cy);
-      if (len >= MIN_LINE_LEN) {
-        lines.push({ x0: cx, y0: pageH - cy, x1: args[0], y1: pageH - args[1], page: pageNum });
-      }
-      cx = args[0]; cy = args[1];
-    }
-  }
-  return lines;
-}
-
-// ── Lattice Table Extraction ──
-async function latticeExtract(textItems, lines, numPages) {
-  const allRows = [];
-
-  for (let p = 1; p <= numPages; p++) {
-    const pageLines = lines.filter(l => l.page === p);
-    const pageText = textItems.filter(t => t.page === p);
-    if (pageLines.length < 4 || pageText.length === 0) continue;
-
-    // Classify lines
-    const hLines = [], vLines = [];
-    for (const l of pageLines) {
-      const dx = Math.abs(l.x1 - l.x0), dy = Math.abs(l.y1 - l.y0);
-      if (dy < LINE_TOLERANCE && dx >= MIN_LINE_LEN)
-        hLines.push({ y: (l.y0 + l.y1) / 2, xMin: Math.min(l.x0, l.x1), xMax: Math.max(l.x0, l.x1) });
-      else if (dx < LINE_TOLERANCE && dy >= MIN_LINE_LEN)
-        vLines.push({ x: (l.x0 + l.x1) / 2, yMin: Math.min(l.y0, l.y1), yMax: Math.max(l.y0, l.y1) });
-    }
-
-    const ys = cluster(hLines.map(l => l.y));
-    const xs = cluster(vLines.map(l => l.x));
-
-    if (xs.length < 2 || ys.length < 2) {
-      log(`  Page ${p}: Grid too sparse (${xs.length} cols, ${ys.length} rows) — skipping lattice`, 'warn');
-      continue;
-    }
-
-    log(`  Page ${p}: Grid ${ys.length - 1} rows × ${xs.length - 1} cols`);
-
-    // Build cells
-    for (let r = 0; r < ys.length - 1; r++) {
-      const rowCells = [];
-      const yTop = ys[r], yBot = ys[r + 1];
-
-      for (let c = 0; c < xs.length - 1; c++) {
-        const xL = xs[c] + CELL_PAD, xR = xs[c + 1] - CELL_PAD;
-        const cellText = pageText.filter(t => {
-          const tcx = t.x + t.width / 2;
-          const tcy = t.y;
-          return tcx >= xL && tcx <= xR && tcy >= yTop + CELL_PAD && tcy <= yBot - CELL_PAD;
-        });
-        cellText.sort((a, b) => a.y - b.y || a.x - b.x);
-        const rawText = cellText.map(t => t.str).join(' ').trim();
-
-        // Use original OCR text without correction
-        try {
-          rowCells.push(rawText);
-        } catch (error) {
-          console.error('Cell correction failed in latticeExtract:', rawText, error);
-          rowCells.push(rawText); // Fallback to original
-        }
-      }
-
-      // Skip empty rows
-      if (rowCells.every(c => c === '')) continue;
-
-      // Classify row
-      const nonEmpty = rowCells.filter(c => c !== '').length;
-      const firstCell = rowCells[0] || '';
-      const isSection = (nonEmpty <= 2 && rowCells.slice(1).some(c => c.length > 15)) ||
-                        (rowCells.join(' ').match(/^(PHẦN|TÁI LẬP|Thủy lượng|ĐƯỜNG|\d+\.\s*ĐƯỜNG)/i));
-      const isHeader = firstCell.match(/^(Stt|\(1\))/i);
-
-      if (isHeader) continue; // skip repeated headers
-
-      allRows.push({
-        type: isSection ? 'section' : 'data',
-        cells: rowCells,
-        page: p
-      });
-    }
-  }
-
-  return allRows;
-}
-
-// ── Fallback: Text Clustering ──
-async function textClusterExtract(textItems) {
-  log('Text clustering: grouping by Y coordinate...', 'warn');
-  const rows = [];
-
-  // Group by page, then by Y clusters
-  const byPage = {};
-  textItems.forEach(t => { (byPage[t.page] = byPage[t.page] || []).push(t); });
-
-  for (const [page, items] of Object.entries(byPage)) {
-    const yVals = cluster(items.map(t => t.y), 4);
-
-    for (let i = 0; i < yVals.length - 1; i++) {
-      const yTop = yVals[i], yBot = (i < yVals.length - 1) ? yVals[i + 1] : yTop + 20;
-      const rowItems = items.filter(t => t.y >= yTop - 2 && t.y < yBot - 2);
-      if (rowItems.length === 0) continue;
-
-      rowItems.sort((a, b) => a.x - b.x);
-      const text = rowItems.map(t => t.str).join(' ').trim();
-      if (!text) continue;
-
-      // Check if this line has pipe separators (table data)
-      if (text.includes('|')) {
-        const parts = text.split('|').map(p => p.trim()).filter(p => p);
-        if (parts.length >= 2) {
-          // FIX: Split first cell if it starts with numbered pattern (e.g., "1. Xi mang" → ["1.", "Xi mang"])
-          // This handles PDFs where STT column is not pipe-separated from content
-          const cells = [...parts];
-          if (cells[0] && /^(\d+\.|\d+\))\s+/.test(cells[0])) {
-            const match = cells[0].match(/^(\d+\.|\d+\))\s+(.+)$/);
-            if (match) {
-              cells.splice(0, 1, match[1], match[2]); // Replace first cell with [STT, content]
-            }
-          }
-
-          rows.push({ type: 'data', cells: cells, page: +page });
-          continue;
-        }
-      }
-
-      // Otherwise single column - use original text
-      try {
-        rows.push({ type: 'data', cells: [text], page: +page });
-      } catch (error) {
-        console.error('Text parsing failed:', text, error);
-        rows.push({ type: 'data', cells: [text], page: +page }); // Fallback to original
-      }
-    }
-  }
-  return rows;
-}
-
-// ── OCR Table Extraction ──
-async function ocrTableExtract(ocrLines, ocrWords) {
-  // Filter margin content (headers/footers in top/bottom 5%)
-  const pageHeights = {};
-  ocrWords.forEach(w => {
-    pageHeights[w.page] = Math.max(pageHeights[w.page] || 0, w.y1);
-  });
-
-  const filteredLines = ocrLines.filter(l => {
-    const ph = pageHeights[l.page] || 800;
-    return l.y > ph * 0.05 && l.y1 < ph * 0.95;
-  });
-
-  // Check if pipe characters are prevalent (table borders recognized as |)
-  const pipeCount = filteredLines.filter(l => (l.text.match(/[|\[\]]/g) || []).length >= 2).length;
-  const pipeRatio = pipeCount / filteredLines.length;
-  log(`  Pipe-delimited lines: ${pipeCount}/${filteredLines.length} (${(pipeRatio * 100).toFixed(0)}%)`);
-
-  if (pipeRatio > 0.25) {
-    log('Using PIPE-BASED parsing (table borders detected in OCR)', 'ok');
-    const correctionType = vpsApiAvailable ? 'VPS API (94%)' : (syllableCorrector && syllableCorrector.ready ? 'dict + syllable' : 'dict only');
-    log(`  Applying Vietnamese spell correction (${correctionType})...`, 'ok');
-    return await pipeBasedExtract(filteredLines);
-  }
-
-  // Fallback: spatial word-position analysis
-  log('Using SPATIAL parsing (word positions)', 'ok');
-  const correctionType2 = vpsApiAvailable ? 'VPS API (94%)' : (syllableCorrector && syllableCorrector.ready ? 'dict + syllable' : 'dict only');
-  log(`  Applying Vietnamese spell correction (${correctionType2})...`, 'ok');
-  const filteredWords = ocrWords.filter(w => {
-    const ph = pageHeights[w.page] || 800;
-    return w.y > ph * 0.05 && w.y1 < ph * 0.95;
-  });
-  return await spatialExtract(filteredLines, filteredWords);
-}
-
-// ── Pipe-based extraction (scanned tables with visible borders) ──
-async function pipeBasedExtract(ocrLines) {
-  var rawRows = [];
-
-  for (var li = 0; li < ocrLines.length; li++) {
-    var line = ocrLines[li];
-    var text = line.text;
-
-    // Normalize bracket-like chars that Tesseract uses for |
-    var normalized = text.replace(/[\[\]]/g, '|');
-    var parts = normalized.split('|').map(function(p) { return p.trim(); });
-    while (parts.length > 0 && parts[0] === '') parts.shift();
-    while (parts.length > 0 && parts[parts.length - 1] === '') parts.pop();
-
-    if (parts.length === 0) continue;
-
-    // FIX: Split first cell if it starts with numbered pattern (e.g., "1. Xi mang" → ["1.", "Xi mang"])
-    if (parts[0] && /^(\d+\.|\d+\))\s+/.test(parts[0])) {
-      var match = parts[0].match(/^(\d+\.|\d+\))\s+(.+)$/);
-      if (match) {
-        parts.splice(0, 1, match[1], match[2]); // Replace first cell with [STT, content]
-      }
-    }
-
-    rawRows.push({ parts: parts, page: line.page, text: text, confidence: line.confidence });
-  }
-
-  var TARGET_COLS = 6;
-  var rows = [];
-
-  for (var ri = 0; ri < rawRows.length; ri++) {
-    var raw = rawRows[ri];
-    var cellStrings = await assignToColumns(raw.parts);
-    if (!cellStrings) continue;
-
-    // Convert string cells to metadata objects
-    // FIX Bug #7: Wrap each cell in try-catch to prevent single error from stopping extraction
-    var cells = await Promise.all(cellStrings.map(async function(val, colIdx) {
-      try {
-        return await createCellMetadata(val, raw.confidence || 85, colIdx);
-      } catch (error) {
-        console.error('Cell correction failed for:', val, error);
-        // Return fallback metadata for failed cell
-        return {
-          value: val,
-          original: val,
-          confidence: 50,
-          source: 'error',
-          correctedBy: 'Error - using original',
-          type: classifyCellType(val, colIdx),
-          edited: false
-        };
-      }
-    }));
-
-    var cellValues = cells.map(c => c.value);
-    var rowType = classifyRow(cellValues, TARGET_COLS);
-    if (rowType === 'header') continue;
-    rows.push({ type: rowType, cells: cells, page: raw.page });
-  }
-
-  log('  Pipe parsing: ' + rows.length + ' rows before merge');
-  return mergeMultiLineCells(rows, TARGET_COLS);
-}
-
-// Recognize Vietnamese units, including OCR-garbled variants
-function matchUnit(s) {
-  s = s.trim();
-  // Clean common OCR substitutions before matching
-  var cleaned = s.replace(/[Jj][lI1]/g, '').replace(/^[0-9]+\s*/, '');
-  // Direct unit match
-  if (/^(m[23]|md|kg|tấn|cái|bộ|lít|Bộ|ci|cil|hộp|con|chiếc|thanh|sợi|cuộn|bao|gói)$/i.test(s)) return true;
-  // "100m3", "100m2", "1900m", etc. (number prefix + unit)
-  if (/^\d+\s*m[23]?$/i.test(s)) return true;
-  // OCR-garbled: "Ji99m3" → "100m3", "Jl00m3" → "100m3"
-  if (/^[Jj][lI1i]\d{2}m[23]?$/i.test(s)) return true;
-  return false;
-}
-
-// Map pipe-split parts into 6 columns: [STT, desc, unit, qty, price, total]
-async function assignToColumns(parts) {
-  var cells = ['', '', '', '', '', ''];
-  if (parts.length === 0) return null;
-
-  // Find the unit part (key anchor) — search from right to left
-  var unitIdx = -1;
-  for (var i = parts.length - 1; i >= 0; i--) {
-    if (matchUnit(parts[i])) { unitIdx = i; break; }
-  }
-
-  // Also check if a unit is embedded at the END of a text part: "...Đấtcấp3 m3"
-  if (unitIdx === -1) {
-    for (var i = 0; i < parts.length; i++) {
-      var m = parts[i].match(/\s+(m[23]|100\s*m[23]|kg|tấn|md|Bộ|ci)\s*$/i);
-      if (m) {
-        // Split the part: text before unit becomes desc, matched unit becomes unit
-        var beforeUnit = parts[i].substring(0, parts[i].length - m[0].length).trim();
-        var unitText = m[1];
-        parts.splice(i, 1, beforeUnit, unitText);
-        unitIdx = i + 1;
-        break;
-      }
-    }
-  }
-
-  if (unitIdx >= 0 && unitIdx < parts.length - 1) {
-    var descParts = parts.slice(0, unitIdx);
-    var unit = parts[unitIdx];
-    var numParts = parts.slice(unitIdx + 1);
-
-    // Extract STT from desc parts
-    var stt = '';
-    if (descParts.length > 0) {
-      var firstPart = descParts[0].trim();
-      if (/^\d{1,3}$/.test(firstPart) && descParts.length > 1) {
-        // STT is in its own pipe section
-        stt = firstPart;
-        descParts.shift();
-      } else if (/^\d{1,3}$/.test(firstPart) && descParts.length === 1) {
-        // Only a number, no description — STT only
-        stt = firstPart;
-        descParts[0] = '';
-      } else {
-        var sttMatch = firstPart.match(/^(\d{1,3})\s+(.*)/);
-        if (sttMatch) { stt = sttMatch[1]; descParts[0] = sttMatch[2]; }
-      }
-    }
-
-    cells[0] = stt;
-    cells[1] = descParts.join(' ').trim(); // Use original OCR without correction
-    cells[2] = unit;
-
-    // Collect all numbers from remaining parts
-    var nums = [];
-    for (var j = 0; j < numParts.length; j++) {
-      var cleaned = numParts[j].replace(/[())\]\\{}]/g, '').trim();
-      if (!cleaned) continue;
-      var subNums = cleaned.split(/\s+/).filter(function(s) { return /[\d]/.test(s); });
-      nums.push.apply(nums, subNums);
-    }
-
-    if (nums.length >= 3) { cells[3] = nums[0]; cells[4] = nums[1]; cells[5] = nums[2]; }
-    else if (nums.length === 2) { cells[3] = nums[0]; cells[5] = nums[1]; }
-    else if (nums.length === 1) { cells[3] = nums[0]; }
-
-  } else {
-    // No unit found — try to salvage
-    var fullText = parts.join(' ').trim();
-    if (!fullText) return null;
-
-    // Check for trailing numbers pattern: "description ... num num num"
-    var trailingNums = fullText.match(/^(.+?)\s+([\d.,]+)\s+([\d.,]+)\s+([\d.,]+)\s*$/);
-    if (trailingNums) {
-      cells[1] = trailingNums[1];
-      cells[3] = trailingNums[2]; cells[4] = trailingNums[3]; cells[5] = trailingNums[4];
-    } else if (parts.length >= 3) {
-      // Multiple pipe parts but no unit — last parts might be numbers
-      var lastParts = parts.slice(-3);
-      var numericLast = lastParts.filter(function(p) { return /^[\d.,\-—()\s]+$/.test(p); }).length;
-      if (numericLast >= 2) {
-        var descEnd = parts.length - numericLast;
-        cells[1] = parts.slice(0, descEnd.join(' ').trim());
-        var numArr = parts.slice(descEnd);
-        for (var k = 0; k < numArr.length && k < 3; k++) {
-          cells[3 + k] = numArr[k].replace(/[()]/g, '').trim();
-        }
-      } else {
-        cells[1] = fullText;
-      }
-    } else {
-      // Pure text row — extract STT if present
-      var sttMatch2 = fullText.match(/^[\(\[]?(\d{1,3})[\)\]]?\s+(.*)/);
-      if (sttMatch2) { cells[0] = sttMatch2[1]; cells[1] = sttMatch2[2]; }
-      else { cells[1] = fullText; }
-    }
-  }
-
-  // Final pass: extract STT from description if not already set
-  if (!cells[0] && cells[1]) {
-    var sttFinal = cells[1].match(/^[\(\[]?(\d{1,3})[\)\]]?\s+(.*)/);
-    if (sttFinal) { cells[0] = sttFinal[1]; cells[1] = sttFinal[2]; }
-  }
-
-  // Clean OCR artifacts in numeric columns
-  for (var c = 3; c < 6; c++) {
-    if (cells[c]) {
-      cells[c] = cells[c].replace(/O/g, '0').replace(/[lI]/g, '1').replace(/[$#]/g, '').replace(/\s/g, '');
-    }
-  }
-
-  return cells;
-}
-
-// ── Spatial extraction fallback (for cleaner OCR without pipe borders) ──
-async function spatialExtract(filteredLines, filteredWords) {
-  var colBoundaries = detectColumns(filteredWords, filteredLines);
-  var numCols = colBoundaries.length - 1;
-  log('  Column detection: ' + numCols + ' columns (spatial)');
-
-  if (numCols < 2) {
-    log('  Column detection failed, falling back to pipe-based splitting...', 'warn');
-    return await pipeBasedExtract(filteredLines);
-  }
-
-  var rows = [];
-  for (var li = 0; li < filteredLines.length; li++) {
-    var line = filteredLines[li];
-    var cellWords = new Array(numCols).fill(null).map(() => []);
-
-    for (var wi = 0; wi < line.words.length; wi++) {
-      var word = line.words[wi];
-      var cx = (word.x + word.x1) / 2;
-      var colIdx = findColumn(cx, colBoundaries);
-      if (colIdx >= 0 && colIdx < numCols) {
-        cellWords[colIdx].push(word);
-      }
-    }
-
-    // Build cells with metadata
-    // FIX Bug #7: Wrap each cell in try-catch to prevent single error from stopping extraction
-    var cells = await Promise.all(cellWords.map(async function(words, colIdx) {
-      try {
-        return await buildCellWithMetadata(words, colIdx);
-      } catch (error) {
-        console.error('Cell metadata build failed:', words, error);
-        // Return fallback metadata for failed cell
-        const rawText = words.map(w => w.text).join(' ');
-        return {
-          value: rawText,
-          original: rawText,
-          confidence: 50,
-          source: 'error',
-          correctedBy: 'Error - using original',
-          type: classifyCellType(rawText, colIdx),
-          edited: false
-        };
-      }
-    }));
-
-    if (cells.every(function(c) { return c.value === ''; })) continue;
-
-    // Clean OCR artifacts in numeric columns
-    for (var c = 3; c < numCols; c++) {
-      if (cells[c].value) {
-        cells[c].value = cells[c].value.replace(/O/g, '0').replace(/l/g, '1').replace(/\s/g, '');
-      }
-    }
-
-    // For classifyRow, extract values
-    var cellValues = cells.map(c => c.value);
-    rows.push({ type: classifyRow(cellValues, numCols), cells: cells, page: line.page });
-  }
-
-  return mergeMultiLineCells(rows, numCols);
-}
-
-function detectColumns(words, lines) {
-  // Strategy 1: Header anchoring (look for header line + words in nearby Y-range)
-  for (var i = 0; i < lines.length; i++) {
-    var lineText = lines[i].text.toLowerCase();
-    if ((/stt|\(1\)/).test(lineText) && (/mô\s*tả|công\s*việc|[đd]vt|đơn\s*vị/).test(lineText)) {
-      log('  Header found: "' + lines[i].text.substring(0, 60) + '..."', 'ok');
-
-      // FIX: Gather words from header region (±30px Y-range) to catch multi-line headers
-      var headerY = lines[i].y;
-      var headerWords = words.filter(function(w) {
-        return Math.abs(w.y - headerY) < 30 && w.page === lines[i].page;
-      });
-
-      var sortedWords = headerWords.slice().sort(function(a, b) { return a.x - b.x; });
-      if (sortedWords.length >= 4) {
-        var boundaries = [sortedWords[0].x - 5];
-        for (var j = 0; j < sortedWords.length - 1; j++) {
-          if (sortedWords[j + 1].x - sortedWords[j].x1 > 10) {
-            boundaries.push((sortedWords[j].x1 + sortedWords[j + 1].x) / 2);
-          }
-        }
-        boundaries.push(sortedWords[sortedWords.length - 1].x1 + 20);
-
-        // FIX: For BOQ tables, expect 6 columns (7 boundaries). Fall back to histogram if < 7
-        if (boundaries.length >= 7) {
-          log('  Column boundaries (header): [' + boundaries.map(function(b) { return b.toFixed(0); }).join(', ') + ']');
-          return boundaries;
-        }
-        log('  Header found but only ' + (boundaries.length - 1) + ' columns, trying histogram...', 'warn');
-      }
-    }
-  }
-
-  log('  Header not found or incomplete, using x-histogram gap detection', 'warn');
-  return detectColumnsHistogram(words);
-}
-
-function detectColumnsHistogram(words) {
-  var BIN_SIZE = 5;
-  var maxX = Math.max.apply(null, words.map(function(w) { return w.x1; }));
-  var bins = new Array(Math.ceil(maxX / BIN_SIZE) + 1).fill(0);
-
-  words.forEach(function(w) {
-    var bin = Math.floor(w.x / BIN_SIZE);
-    if (bin >= 0 && bin < bins.length) bins[bin]++;
-  });
-
-  var threshold = Math.max.apply(null, bins) * 0.02;
-  var gaps = [];
-  var inGap = false, gapStart = 0;
-
-  for (var i = 0; i < bins.length; i++) {
-    if (bins[i] <= threshold) {
-      if (!inGap) { inGap = true; gapStart = i; }
-    } else {
-      if (inGap && (i - gapStart) >= 2) gaps.push((gapStart + i) / 2 * BIN_SIZE);
-      inGap = false;
-    }
-  }
-
-  var leftEdge = Math.min.apply(null, words.map(function(w) { return w.x; })) - 5;
-  var rightEdge = maxX + 20;
-  var boundaries = [leftEdge].concat(gaps, [rightEdge]).sort(function(a, b) { return a - b; });
-
-  log('  Column boundaries (histogram): [' + boundaries.map(function(b) { return b.toFixed(0); }).join(', ') + ']');
-  return boundaries;
-}
-
-function findColumn(x, boundaries) {
-  for (var i = 0; i < boundaries.length - 1; i++) {
-    if (x >= boundaries[i] && x < boundaries[i + 1]) return i;
-  }
-  return boundaries.length - 2;
-}
-
-function classifyRow(cells, numCols) {
-  var stt = cells[0] || '';
-  var desc = cells[1] || '';
-  var unit = cells[2] || '';
-  var nonEmpty = cells.filter(function(c) { return c !== ''; }).length;
-  var hasNumericData = cells.slice(3).some(function(c) { return c && /[\d]/.test(c); });
-
-  // Header patterns (column headers)
-  if (/^stt$/i.test(stt) || /^\(1\)$/.test(stt)) return 'header';
-  if (/^stt$/i.test(desc) || /HÀNG\s*MỤC|MÔ\s*TẢ/i.test(desc)) return 'header';
-
-  // Pre-table content (document titles, metadata) — matches both diacritics and without
-  if (/CỘNG\s*H[OÒÕ]À|Độc\s*lập|BI[ÊE]U\s*GI[AÁ]|Đính\s*kèm|dự\s*án|Hợp\s*đồng\s*số|thầu/i.test(desc)) return 'header';
-  if (/^đồng\s+đồng$/i.test(desc.trim())) return 'header';
-  // Street/area section headers
-  if (/H[ÊEẺ]M\s*\d+|CONG\s*TR[ƯU][ỜO]NG\s*QU[ỐO]C/i.test(desc) && !hasNumericData) return 'section';
-  // "ĐƯỜNG NGUYỄN ĐÌNH CHIỂU" / "LDUONGNGUYENDINH" — street name headers
-  if (/^L?[ĐD]?[ƯU]?[ỜO]?NG\s*NGUY[ÊE]N|PH[ƯU][ỜO]NG\s*[A-Z]/i.test(desc) && !hasNumericData) return 'section';
-  // Broad: all-caps sections starting with PHAN (PHẦN)
-  if (/^PH[AÀẢ]N\s*(T[AÁ]I|L[AÁ]P|[ĐD][ÀA]O)/i.test(desc)) return 'section';
-
-  // Garbage detection: high ratio of non-alphanumeric chars → skip
-  var alphaNum = (desc.match(/[a-zA-ZÀ-ỹ0-9\s.,()]/g) || []).length;
-  var garbageRatio = 1 - (alphaNum / (desc.length || 1));
-
-  // Skip garbled text-only rows (no unit, no numbers, lots of garbage)
-  if (!unit && !hasNumericData && desc.length > 15 && garbageRatio > 0.25) return 'header';
-  // Short garbled fragments with no data
-  if (!unit && !hasNumericData && desc.length < 15 && nonEmpty <= 2) return 'header';
-  // Long text-only rows with no structure — likely garbled OCR noise
-  if (!unit && !hasNumericData && !stt && desc.length > 40) return 'header';
-
-  // Section headers: clear Vietnamese section patterns only
-  if (/PHẦN\s*(LẮP|ĐẶT|TÁI|ĐÀO)/i.test(desc) && !hasNumericData) return 'section';
-  if (/^\d+\.\s*ĐƯỜNG/i.test(desc) && !hasNumericData) return 'section';
-  if (/TÁI\s*LẬP\s*MẶT\s*ĐƯỜNG/i.test(desc) && !hasNumericData) return 'section';
-  if (/ĐƯỜNG.*PHƯỜNG/i.test(desc) && !hasNumericData) return 'section';
-  if (/TÁI\s*LẬP\s*(GẠCH|LÈ)/i.test(desc) && !hasNumericData) return 'section';
-
-  // Data rows should have at least a unit or some numbers
-  if (!unit && !hasNumericData && !stt) {
-    // Text only, no structure — might be garbled section or noise
-    if (desc.length > 40) return 'header';
-    return 'data';
-  }
-
-  return 'data';
-}
-
-function mergeMultiLineCells(rows, numCols) {
-  var merged = [];
-
-  for (var i = 0; i < rows.length; i++) {
-    var row = rows[i];
-    if (row.type === 'header') continue;
-
-    // Handle both string cells (legacy) and object cells (metadata)
-    var getVal = function(cell) { return typeof cell === 'string' ? cell : (cell ? cell.value : ''); };
-
-    var stt = getVal(row.cells[0]).trim();
-    var desc = getVal(row.cells[1]);
-    var hasSTT = /^\d{1,3}$/.test(stt);
-    var hasUnit = row.cells[2] && getVal(row.cells[2]).trim();
-    var hasNumeric = row.cells.slice(3).some(function(c) { return c && /\d/.test(getVal(c)); });
-
-    // A continuation line: no STT, no unit, no numeric data, short desc, and previous row exists
-    var isContLine = !hasSTT && !hasUnit && !hasNumeric && desc.length < 120;
-    // Don't merge section rows
-    if (row.type === 'section') isContLine = false;
-
-    if (isContLine && merged.length > 0 && merged[merged.length - 1].type === 'data') {
-      var prev = merged[merged.length - 1];
-      // Only merge if it looks like a genuine continuation (same page, desc is reasonable)
-      if (row.page === prev.page && desc.length < 80) {
-        // Merge description cells
-        if (typeof prev.cells[1] === 'object' && typeof row.cells[1] === 'object') {
-          prev.cells[1].value = (prev.cells[1].value + ' ' + row.cells[1].value).trim();
-        } else {
-          prev.cells[1] = (getVal(prev.cells[1]) + ' ' + desc).trim();
-        }
-        for (var c = 2; c < numCols; c++) {
-          if (row.cells[c] && !getVal(prev.cells[c])) prev.cells[c] = row.cells[c];
-        }
-        continue;
-      }
-    }
-
-    merged.push({ type: row.type, cells: row.cells.slice(), page: row.page });
-  }
-
-  return merged;
-}
-
-// ── Utilities ──
-function cluster(values, tol = LINE_TOLERANCE) {
-  if (values.length === 0) return [];
-  const sorted = [...new Set(values.map(v => Math.round(v * 10) / 10))].sort((a, b) => a - b);
-  const clusters = [sorted[0]];
-  for (let i = 1; i < sorted.length; i++) {
-    if (sorted[i] - clusters[clusters.length - 1] > tol) {
-      clusters.push(sorted[i]);
-    } else {
-      // Update cluster center to average
-      clusters[clusters.length - 1] = (clusters[clusters.length - 1] + sorted[i]) / 2;
-    }
-  }
-  return clusters;
-}
-
-// ── UI: Stats ──
-function showStats(s) {
-  $('statsPanel').classList.remove('hidden');
-  const items = [
-    ['Pages', s.pages],
-    ...(s.ocrWords > 0 ? [
-      ['OCR Words', s.ocrWords],
-      ['Avg Confidence', s.avgConfidence ? s.avgConfidence + '%' : 'N/A'],
-    ] : [
-      ['Text Spans', s.textSpans],
-      ['Lines Found', s.lines],
-    ]),
-    ['Table Rows', s.rows],
-    ['Data Rows', s.dataRows],
-    ['Sections', s.sectionRows]
-  ];
-  $('stats').innerHTML = items
-    .map(([l, v]) => `<div class="stat"><div class="val">${typeof v === 'number' ? v.toLocaleString() : v}</div><div class="label">${l}</div></div>`)
-    .join('');
-}
-
-// ── UI: Table Preview ──
-function renderPreview(rows) {
-  $('previewPanel').classList.remove('hidden');
-  $('previewCount').textContent = `(${rows.length} rows)`;
-
-  // Calculate confidence statistics
-  let totalCells = 0, highConf = 0, medConf = 0, lowConf = 0;
-  let dictCorrections = 0, syllableCorrections = 0, userEdits = 0;
-
-  rows.forEach(row => {
-    row.cells.forEach(cell => {
-      if (typeof cell === 'object' && cell !== null && cell.value) {
-        totalCells++;
-        if (cell.confidence >= 90) highConf++;
-        else if (cell.confidence >= 70) medConf++;
-        else lowConf++;
-
-        if (cell.source === 'dictionary') dictCorrections++;
-        else if (cell.source === 'syllable') syllableCorrections++;
-        if (cell.edited) userEdits++;
-      }
-    });
-  });
-
-  // Update review panel
-  if (totalCells > 0) {
-    $('reviewPanel').classList.remove('hidden');
-    let reviewHtml = `<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-top:8px;">`;
-    reviewHtml += `<div><strong style="color:var(--text)">${highConf}</strong> <span style="color:var(--dim)">high confidence</span></div>`;
-    reviewHtml += `<div><strong style="color:var(--warn)">${medConf}</strong> <span style="color:var(--dim)">need review</span></div>`;
-    reviewHtml += `<div><strong style="color:#ef4444">${lowConf}</strong> <span style="color:var(--dim)">low confidence</span></div>`;
-    reviewHtml += `</div><div style="margin-top:12px;font-size:11px;color:var(--dim);">`;
-    reviewHtml += `Corrections: <strong style="color:var(--accent2)">${dictCorrections} dictionary</strong> · `;
-    reviewHtml += `<strong style="color:var(--accent2)">${syllableCorrections} syllable model</strong>`;
-    if (userEdits > 0) reviewHtml += ` · <strong style="color:var(--accent)">${userEdits} manual edits</strong>`;
-    reviewHtml += `</div>`;
-    $('reviewStats').innerHTML = reviewHtml;
-  }
-
-  // Determine max columns
-  const maxCols = Math.max(...rows.map(r => r.cells.length), 1);
-  const colHeaders = maxCols === 6
-    ? ['STT', 'Mô tả công việc', 'Đvt', 'Khối lượng', 'Đơn giá', 'Thành tiền']
-    : Array.from({ length: maxCols }, (_, i) => `Col ${i + 1}`);
-
-  let html = '<table><thead><tr>';
-  html += '<th>#</th>';
-  colHeaders.forEach(h => html += `<th>${h}</th>`);
-  html += '</tr></thead><tbody>';
-
-  const previewRows = rows.slice(0, 200);
-  previewRows.forEach((row, idx) => {
-    const cls = row.type === 'section' ? ' class="section"' : '';
-    html += `<tr${cls} data-row="${idx}">`;
-    html += `<td style="color:var(--dim)">${idx + 1}</td>`;
-    for (let c = 0; c < maxCols; c++) {
-      const cell = row.cells[c];
-      const isMetadata = typeof cell === 'object' && cell !== null;
-      const val = isMetadata ? cell.value : (cell || '');
-      const isNum = val.match(/^[\d.,]+$/) && c >= 3;
-
-      let style = '';
-      let classes = isNum ? 'num editable' : 'editable';
-      let title = '';
-
-      if (isMetadata) {
-        // Apply minimal color coding (only for what needs attention)
-        if (cell.confidence < 90) {
-          const bgColor = getConfidenceColor(cell.confidence);
-          const border = getConfidenceBorder(cell.confidence);
-          style = `background:${bgColor};border:${border};`;
-        }
-
-        // Build tooltip
-        title = buildAttributionTooltip(cell).replace(/"/g, '&quot;');
-
-        if (cell.edited) {
-          classes += ' edited';
-        }
-      }
-
-      html += `<td class="${classes}" data-row="${idx}" data-col="${c}" style="${style}" title="${title}">${escHtml(val)}</td>`;
-    }
-    html += '</tr>';
-  });
-  if (rows.length > 200) {
-    html += `<tr><td colspan="${maxCols + 1}" style="text-align:center;color:var(--dim)">... ${rows.length - 200} more rows</td></tr>`;
-  }
-  html += '</tbody></table>';
-  $('tableWrap').innerHTML = html;
-
-  // Add click handlers for inline editing
-  document.querySelectorAll('td.editable').forEach(td => {
-    td.addEventListener('click', function() {
-      makeEditable(this);
-    });
-  });
-
-  $('dlXlsx').disabled = false;
-  $('dlDebugJSON').disabled = false;
-}
-
-function escHtml(s) {
-  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-}
-
-// ── Inline Cell Editing ──
-function makeEditable(td) {
-  const rowIdx = parseInt(td.dataset.row);
-  const colIdx = parseInt(td.dataset.col);
-  const cell = extractedRows[rowIdx].cells[colIdx];
-  const currentValue = typeof cell === 'object' ? cell.value : (cell || '');
-
-  // Create input
-  const input = document.createElement('input');
-  input.type = 'text';
-  input.value = currentValue;
-  input.style.cssText = 'width:100%;background:var(--bg);color:var(--text);border:2px solid var(--accent);padding:4px;font:inherit;';
-
-  // Replace cell content with input
-  td.innerHTML = '';
-  td.appendChild(input);
-  input.focus();
-  input.select();
-
-  // Save on blur or Enter
-  const save = () => {
-    const newValue = input.value.trim();
-    if (typeof cell === 'object') {
-      if (newValue !== cell.value) {
-        cell.value = newValue;
-        cell.edited = true;
-        cell.source = 'user';
-        cell.correctedBy = 'Manual Edit';
-      }
-    } else {
-      extractedRows[rowIdx].cells[colIdx] = newValue;
-    }
-    renderPreview(extractedRows);
-  };
-
-  input.addEventListener('blur', save);
-  input.addEventListener('keydown', e => {
-    if (e.key === 'Enter') save();
-    if (e.key === 'Escape') renderPreview(extractedRows);
-  });
-}
-
-// ── Export: XLSX ──
-$('dlXlsx').addEventListener('click', () => {
-  if (extractedRows.length === 0) return;
-  const maxCols = Math.max(...extractedRows.map(r => r.cells.length));
-  const headers = maxCols === 6
-    ? ['STT', 'Mô tả công việc', 'Đvt', 'Khối lượng', 'Đơn giá (đồng)', 'Thành tiền (đồng)']
-    : Array.from({ length: maxCols }, (_, i) => `Column ${i + 1}`);
-
-  const aoa = [headers];
-  for (const row of extractedRows) {
-    const cells = [];
-    for (let c = 0; c < maxCols; c++) {
-      const cell = row.cells[c];
-      // Extract value from metadata object or use string directly
-      let val = typeof cell === 'object' ? (cell ? cell.value : '') : (cell || '');
-
-      // Try parsing numbers for numeric columns
-      if (c >= 3 && val) {
-        const parsed = parseVnNumber(val);
-        if (parsed !== null) { cells.push(parsed); continue; }
-      }
-      // STT column
-      if (c === 0 && val && /^\d+$/.test(val)) { cells.push(parseInt(val)); continue; }
-      cells.push(val);
-    }
-    aoa.push(cells);
-  }
-
-  const wb = XLSX.utils.book_new();
-  const ws = XLSX.utils.aoa_to_sheet(aoa);
-
-  // Column widths
-  ws['!cols'] = [
-    { wch: 6 }, { wch: 60 }, { wch: 10 }, { wch: 14 }, { wch: 16 }, { wch: 18 }
-  ].slice(0, maxCols);
-
-  XLSX.utils.book_append_sheet(wb, ws, 'Biểu giá');
-  XLSX.writeFile(wb, 'bieu_gia_extracted.xlsx');
-  log('XLSX exported!', 'ok');
-});
-
-// ── Debug: Export JSON ──
-function exportDebugJSON() {
-  if (!debugData || !debugData.ocrWords || debugData.ocrWords.length === 0) {
-    alert('No debug data available. Process a PDF first.');
-    return;
-  }
-
-  const exportData = {
-    metadata: debugData.pdfMetadata,
-    statistics: {
-      totalWords: debugData.ocrWords.length,
-      totalLines: debugData.ocrLines.length,
-      totalPages: debugData.pageImages.length,
-      avgConfidence: debugData.ocrWords.length > 0
-        ? (debugData.ocrWords.reduce((sum, w) => sum + w.confidence, 0) / debugData.ocrWords.length).toFixed(1)
-        : 0
-    },
-    ocrWords: debugData.ocrWords,
-    ocrLines: debugData.ocrLines,
-    extractedRows: extractedRows.map(row => ({
-      type: row.type,
-      cells: row.cells.map(cell => ({
-        value: typeof cell === 'object' ? cell.value : cell,
-        original: typeof cell === 'object' ? cell.original : cell,
-        confidence: typeof cell === 'object' ? cell.confidence : null
-      }))
-    })),
-    columnBoundaries: debugData.columnBoundaries
-  };
-
-  const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = 'ocr_debug_data.json';
-  a.click();
-  URL.revokeObjectURL(url);
-  log('Debug JSON exported!', 'ok');
-}
-
-// ── Debug: Show Bbox Visualization ──
-
-// ── Export: CSV ── (Removed - Excel only)
-/*
-$('dlCsv').addEventListener('click', () => {
-  if (extractedRows.length === 0) return;
-  const maxCols = Math.max(...extractedRows.map(r => r.cells.length));
-  let csv = '';
-  for (const row of extractedRows) {
-    const cells = [];
-    for (let c = 0; c < maxCols; c++) {
-      let val = row.cells[c] || '';
-      if (val.includes(',') || val.includes('"') || val.includes('\n'))
-        val = '"' + val.replace(/"/g, '""') + '"';
-      cells.push(val);
-    }
-    csv += cells.join(',') + '\n';
-  }
-  downloadBlob(csv, 'bieu_gia_extracted.csv', 'text/csv;charset=utf-8;');
-  log('CSV exported!', 'ok');
-});
-*/
-
-function downloadBlob(content, filename, mime) {
-  const blob = new Blob(['\ufeff' + content], { type: mime });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url; a.download = filename; a.click();
-  URL.revokeObjectURL(url);
-}
-
-// ── Vietnamese Number Parser ──
-function parseVnNumber(s) {
-  s = s.trim();
-  if (!s || !/[\d]/.test(s)) return null;
-
-  // "4.330.000" → 4330000 (dots as thousands)
-  // "0,700" → 0.7 (comma as decimal)
-  const dotCount = (s.match(/\./g) || []).length;
-  const commaCount = (s.match(/,/g) || []).length;
-
-  let normalized;
-  if (dotCount > 1) {
-    // Multiple dots = thousands separator
-    normalized = s.replace(/\./g, '');
-    if (commaCount === 1) normalized = normalized.replace(',', '.');
-  } else if (dotCount === 1 && commaCount === 0) {
-    // Could be decimal or thousands — check position
-    const parts = s.split('.');
-    if (parts[1] && parts[1].length === 3 && parts[0].length <= 3) {
-      // Likely thousands separator: "1.000" = 1000
-      normalized = s.replace('.', '');
-    } else {
-      normalized = s; // decimal
-    }
-  } else if (commaCount === 1 && dotCount === 0) {
-    normalized = s.replace(',', '.');
-  } else {
-    normalized = s.replace(/\./g, '').replace(',', '.');
-  }
-
-  const num = parseFloat(normalized);
-  return isNaN(num) ? null : num;
-}
-
 // ── Init ──
 updateCustomWordsUI();  // Load custom dictionary UI on page load
 diacriticCache = loadDiacriticCache();  // Load VPS API cache
 
-log('Ready. Drop a BOQ PDF to begin.');
+setupExport();  // register XLSX export event listener
+log('Ready. Drop a PDF to begin.');
 log('Pipeline: pdf.js (text + vectors) → Tesseract.js OCR fallback → table extraction → SheetJS export');
 log('Diacritic correction: VPS API (94% accuracy) → Dictionary → Syllable model fallback');
 log('No data leaves your browser.\n');
@@ -1975,7 +818,9 @@ log('No data leaves your browser.\n');
 window.addEventListener('beforeunload', () => {
   if (tesseractWorker) tesseractWorker.terminate();
 });
+
 </script>
+<div id="cropPop"><canvas id="cropCanvas"></canvas><div class="cp-label" id="cropLabel"></div></div>
 </body>
 </html>
 
