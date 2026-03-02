@@ -8,4 +8,4 @@ set -e
 cd "$(dirname "$0")"
 export PYTHONPATH="/usr/lib/python3.11/lib-dynload${PYTHONPATH:+:$PYTHONPATH}"
 export PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK=True
-exec venv_paddle311/bin/python ocr_server.py "$@"
+exec ../venv_paddle311/bin/python ocr_server.py "$@"
