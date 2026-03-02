@@ -7,6 +7,8 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/onnxruntime-web@1.22.0/dist/ort.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/clipper-lib@6.4.2/clipper.js"></script>
 <script async src="https://docs.opencv.org/4.x/opencv.js" onload="onOpenCvReady();" type="text/javascript"></script>
 <script src="vn_syllable_corrector.js"></script>
 <script src="vietnamese_text_fixes_v2.js"></script>
@@ -132,8 +134,13 @@ tr.fl-active > td { box-shadow:inset 0 0 0 2px var(--accent)!important; }
 <h1>PDF Table OCR → <span>Excel</span></h1>
 <p class="subtitle">Extract tables from scanned PDFs · Vietnamese text support · <em>100% private - no data uploaded</em></p>
 <p style="font-size: 11px; color: var(--dim); margin-bottom: 16px;">
-  ⚡ Vietnamese OCR ·
-  <span id="ocrBackendBadge" style="font-weight:600; color: var(--dim);">checking server…</span>
+  ⚡ OCR backend:
+  <select id="ocrBackendSelect" style="font-size:11px;font-family:inherit;border:1px solid var(--border);border-radius:4px;padding:2px 4px;background:var(--surface);color:var(--text);">
+    <option value="server">Server (PaddleOCR + EasyOCR)</option>
+    <option value="onnx">ONNX browser (PaddleOCR det + VietOCR rec)</option>
+    <option value="tesseract">Tesseract.js</option>
+  </select>
+  <span id="ocrBackendBadge" style="font-weight:600; color: var(--dim);"></span>
   · <a href="#" onclick="clearAuthToken();return false;" style="font-size:11px;color:var(--dim);">change token</a>
 </p>
 
@@ -236,13 +243,14 @@ tr.fl-active > td { box-shadow:inset 0 0 0 2px var(--accent)!important; }
     <canvas id="vizCanvas" style="display:block;"></canvas>
   </div>
   <div style="margin-top:6px;font-size:10px;color:var(--dim);">
-    Blue = PaddleOCR (numeric) · Green = VietOCR (text) · Amber = medium conf · Red = low conf
+    Blue = numeric · Green = Vietnamese text · Amber = medium conf · Red = low conf
   </div>
 </div>
 
 <script src="boq-utils.js"></script>
 <script src="boq-viet.js"></script>
 <script src="boq-ocr.js"></script>
+<script src="boq-onnx.js"></script>
 <script src="boq-extract.js"></script>
 <script src="boq-ui.js"></script>
 <script src="boq-review.js"></script>
@@ -420,38 +428,50 @@ let diacriticCache = {}; // In-memory cache for this session
 // Use the same host the page was served from so it works via IP (e.g. http://ip:8080/new.html)
 const OCR_SERVER_URL = `http://${window.location.hostname || 'localhost'}:5000`;
 let ocrServerAvailable = null; // null = untested, true = online, false = offline
+let onnxBackendAvailable = null; // null = untested, true = loaded, false = failed
 
 // Re-probe OCR server (called after auth token changes)
 async function checkOCRServer() {
   ocrServerAvailable = null;
-  const badge = document.getElementById('ocrBackendBadge');
   try {
     const r = await fetch(`${OCR_SERVER_URL}/health`, {
       headers: authHeaders(),
       signal: AbortSignal.timeout(4000)
     });
-    if (r.ok) {
-      ocrServerAvailable = true;
-      if (badge) { badge.textContent = '🟢 PaddleOCR + EasyOCR (server)'; badge.style.color = '#22c55e'; }
-    } else { throw new Error(`HTTP ${r.status}`); }
-  } catch {
-    if (badge) { badge.textContent = `🟡 Tesseract.js fallback (${OCR_SERVER_URL} unreachable)`; badge.style.color = '#f59e0b'; }
-  }
+    if (r.ok) ocrServerAvailable = true;
+  } catch { /* offline */ }
+  updateBackendBadge();
 }
 
-// Probe the OCR server immediately at page load so the badge shows correct status
-(async function probeServer() {
+// Probe backends at page load and update badge
+(async function probeBackends() {
   const badge = document.getElementById('ocrBackendBadge');
+  const select = document.getElementById('ocrBackendSelect');
+  // Check server
   try {
     const r = await fetch(`${OCR_SERVER_URL}/health`, { signal: AbortSignal.timeout(4000) });
-    if (r.ok) {
-      ocrServerAvailable = true;
-      if (badge) { badge.textContent = '🟢 PaddleOCR + EasyOCR (server)'; badge.style.color = '#22c55e'; }
-    } else { throw new Error(`HTTP ${r.status}`); }
-  } catch {
-    if (badge) { badge.textContent = `🟡 Tesseract.js fallback (${OCR_SERVER_URL} unreachable)`; badge.style.color = '#f59e0b'; }
-  }
+    if (r.ok) ocrServerAvailable = true;
+  } catch { /* server offline */ }
+  // Update badge based on selected backend
+  updateBackendBadge();
 })();
+
+function updateBackendBadge() {
+  const badge = document.getElementById('ocrBackendBadge');
+  const sel = document.getElementById('ocrBackendSelect');
+  if (!badge || !sel) return;
+  const v = sel.value;
+  if (v === 'server') {
+    if (ocrServerAvailable) { badge.textContent = '🟢 online'; badge.style.color = '#22c55e'; }
+    else { badge.textContent = '🔴 offline'; badge.style.color = '#ef4444'; }
+  } else if (v === 'onnx') {
+    if (onnxBackendAvailable) { badge.textContent = '🟢 ready'; badge.style.color = '#22c55e'; }
+    else { badge.textContent = '🟡 will load on first use (~77 MB)'; badge.style.color = '#f59e0b'; }
+  } else {
+    badge.textContent = '🟢 ready'; badge.style.color = '#22c55e';
+  }
+}
+document.getElementById('ocrBackendSelect').addEventListener('change', updateBackendBadge);
 // ── UI Refs ──
 const $ = id => document.getElementById(id);
 const dropzone = $('dropzone');
@@ -641,34 +661,28 @@ async function extractPDF(buffer) {
 
       try {
         let ocrResult;
-        if (ocrServerAvailable !== false) {
-          try {
-            ocrResult = await ocrPageWithServer(canvas, p);
-            if (ocrServerAvailable === null) {
-              log(`✓ Hybrid OCR server online — using PaddleOCR + EasyOCR Vietnamese`, 'ok');
-              const badge = document.getElementById('ocrBackendBadge');
-              if (badge) { badge.textContent = '🟢 PaddleOCR + EasyOCR (server)'; badge.style.color = '#22c55e'; }
-            }
-            ocrServerAvailable = true;
-          } catch (serverErr) {
-            const isConnErr = serverErr.name === 'TypeError' || serverErr.message.includes('fetch');
-            if (isConnErr) {
-              // Server unreachable — switch permanently to Tesseract fallback
-              if (ocrServerAvailable === null) {
-                log(`Hybrid OCR server offline (${serverErr.message}), using Tesseract`, 'warn');
-                const badge = document.getElementById('ocrBackendBadge');
-                if (badge) { badge.textContent = `🟡 Tesseract.js fallback (server at ${OCR_SERVER_URL} unreachable)`; badge.style.color = '#f59e0b'; }
-              }
-              ocrServerAvailable = false;
-              ocrResult = await ocrPageWithTimeout(canvas, p, 30000);
-            } else {
-              // Server error on this page (HTTP 5xx, abort, crash) — skip page, keep trying server
-              log(`  ⚠️ Page ${p}: server error (${serverErr.message}), skipping`, 'warn');
-              ocrResult = { words: [], lines: [] };
-            }
+        const selectedBackend = document.getElementById('ocrBackendSelect').value;
+
+        if (selectedBackend === 'server') {
+          ocrResult = await ocrPageWithServer(canvas, p);
+          ocrServerAvailable = true;
+          if (ocrPageCount === 0) log(`✓ Using server backend (PaddleOCR + EasyOCR)`, 'ok');
+        } else if (selectedBackend === 'onnx') {
+          // Lazy-init ONNX on first use
+          if (!onnxBackendAvailable) {
+            const badge = document.getElementById('ocrBackendBadge');
+            log(`Initializing ONNX models (first time ~77 MB download)...`, 'warn');
+            if (badge) { badge.textContent = '⏳ loading models...'; badge.style.color = '#f59e0b'; }
+            const ok = await initOnnxOCR((msg) => { if (badge) badge.textContent = '⏳ ' + msg; });
+            if (!ok) throw new Error('ONNX initialization failed');
+            onnxBackendAvailable = true;
+            updateBackendBadge();
           }
+          ocrResult = await ocrPageWithOnnx(canvas, p);
+          if (ocrPageCount === 0) log(`✓ Using ONNX browser backend (PaddleOCR det + VietOCR rec)`, 'ok');
         } else {
           ocrResult = await ocrPageWithTimeout(canvas, p, 30000);
+          if (ocrPageCount === 0) log(`✓ Using Tesseract.js backend`, 'ok');
         }
         perfEnd(`Page ${p}: OCR`);
         ocrPageCount++;
