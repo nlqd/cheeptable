@@ -3,9 +3,10 @@
 
 import json
 import re
+import sys
 import openpyxl
 
-EXTRACTED_JSON = '/tmp/extracted_rows.json'
+EXTRACTED_JSON = sys.argv[1] if len(sys.argv) > 1 else '/tmp/extracted_rows.json'
 GT_PATH        = 'golden.xlsx'
 
 
