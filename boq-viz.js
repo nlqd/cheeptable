@@ -59,7 +59,7 @@ async function renderVizPage() {
       else if (conf >= 0.70) stroke = 'rgba(245,158,11,0.85)'; // amber  - medium
       else stroke = 'rgba(239,68,68,0.85)';                    // red    - low
     } else {
-      stroke = w.src === 'paddle' ? 'rgba(59,130,246,0.85)' : 'rgba(16,185,129,0.85)';
+      stroke = (w.src === 'paddle' || w.src === 'onnx-num') ? 'rgba(59,130,246,0.85)' : 'rgba(16,185,129,0.85)';
     }
 
     // Semi-transparent fill makes boxes visible at a glance
