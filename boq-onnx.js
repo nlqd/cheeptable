@@ -613,7 +613,7 @@ async function ocrPageWithOnnx(canvas, pageNum) {
     if (cropW < 5 || cropH < 5) continue;
 
     const { text: rawText, confidence } = await _recognizeBox(canvas, box);
-    if (!rawText.trim()) continue;
+    if (!rawText.trim() || confidence < 0.65) continue;
 
     const text = _postProcess(rawText, cropW, box.score);
     if (!text.trim()) continue;

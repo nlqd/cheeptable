@@ -451,7 +451,7 @@ function _preprocessVietOCR(canvas, x0, y0, x1, y1) {
   }
   let trimmedW = Math.max(4, lastNonBlank + 1);
   trimmedW = Math.ceil(trimmedW / 10) * 10;
-  trimmedW = Math.max(32, Math.min(768, trimmedW));
+  trimmedW = Math.max(32, Math.min(512, trimmedW));
 
   // Re-read at trimmed width if different
   let finalW = trimmedW;

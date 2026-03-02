@@ -285,13 +285,8 @@ function submitAuth() {
   document.getElementById('authOverlay').style.display = 'none';
   checkOCRServer();  // re-probe server with new token
 }
-// Show overlay if no token stored
-if (!getAuthToken()) {
-  document.getElementById('authOverlay').style.display = 'flex';
-  setTimeout(() => document.getElementById('authToken').focus(), 100);
-} else {
-  document.getElementById('authOverlay').style.display = 'none';
-}
+// No auth required for public deployment
+document.getElementById('authOverlay').style.display = 'none';
 // ── State ──
 let extractedRows = [];
 let tesseractWorker = null;
@@ -749,35 +744,6 @@ async function extractPDF(buffer) {
   $('pbar').style.width = '95%';
   extractedRows = rows;
   window.extractedRows = rows;  // expose for console/rodney access
-
-  // AUTO-EXPORT CSV for verification - save to file instead of console
-  setTimeout(function() {
-    console.log('[CSV_EXPORT] Generating CSV...');
-    var csv = 'STT,Mô tả công việc,Đvt,Khối lượng,Đơn giá (đồng),Thành tiền (đồng),Page\n';
-    for (var i = 0; i < extractedRows.length; i++) {
-      var row = extractedRows[i];
-      var vals = [];
-      for (var c = 0; c < 6; c++) {
-        var cell = row.cells[c];
-        var val = '';
-        if (cell) {
-          val = (typeof cell === 'object') ? (cell.value || '') : (cell || '');
-          val = String(val).replace(/"/g, '""').replace(/\n/g, ' ');
-        }
-        vals.push('"' + val + '"');
-      }
-      vals.push(row.page || ''); // Add page number
-      csv += vals.join(',') + '\n';
-    }
-
-    // Download CSV file
-    var blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8;' });
-    var link = document.createElement('a');
-    link.href = URL.createObjectURL(blob);
-    link.download = 'extracted_full_11_pages.csv';
-    link.click();
-    console.log('[CSV_EXPORT] Downloaded: extracted_full_11_pages.csv (' + extractedRows.length + ' rows)');
-  }, 3000);
 
   console.log(`[extractPDF] Filtering rows by type...`);
   const dataRows = rows.filter(r => r.type === 'data').length;
