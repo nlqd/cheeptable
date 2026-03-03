@@ -3,24 +3,23 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>PDF Table OCR → Excel</title>
+<title>CheepTable — PDF Table OCR to Excel</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web@1.22.0/dist/ort.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/clipper-lib@6.4.2/clipper.js"></script>
 <script async src="https://docs.opencv.org/4.x/opencv.js" onload="onOpenCvReady();" type="text/javascript"></script>
+<link href="https://unpkg.com/tabulator-tables@6.3.1/dist/css/tabulator_simple.min.css" rel="stylesheet">
+<script src="https://unpkg.com/tabulator-tables@6.3.1/dist/js/tabulator.min.js"></script>
 <script src="vn_syllable_corrector.js"></script>
 <script src="vietnamese_text_fixes_v2.js"></script>
 <script src="confidence-tracking.js"></script>
 <style>
 :root { --bg: #ffffff; --surface: #f8fafc; --border: #e2e8f0; --accent: #3b82f6; --accent2: #10b981; --text: #0f172a; --dim: #64748b; --warn: #f59e0b; }
 * { margin:0; padding:0; box-sizing:border-box; }
-body { font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace; background: var(--bg); color: var(--text); min-height:100vh; padding: 24px; }
-h1 { font-size: 20px; font-weight: 600; margin-bottom: 4px; }
-h1 span { color: var(--accent); }
-.subtitle { color: var(--dim); font-size: 12px; margin-bottom: 24px; }
-.subtitle em { color: var(--warn); font-style: normal; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: var(--bg); color: var(--text); min-height:100vh; padding: 24px; }
+h1 { font-size: 24px; font-weight: 700; margin-bottom: 4px; }
+.subtitle { color: var(--dim); font-size: 13px; margin-bottom: 24px; }
 
 #dropzone {
   border: 2px dashed var(--border); border-radius: 12px; padding: 48px; text-align: center;
@@ -31,37 +30,11 @@ h1 span { color: var(--accent); }
 #dropzone p { color: var(--dim); font-size: 14px; }
 #dropzone p strong { color: var(--text); }
 
-.panel { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 16px; margin-bottom: 16px; }
-.panel-title { font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: var(--dim); margin-bottom: 12px; }
-
-.stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; }
-.stat { text-align: center; }
-.stat .val { font-size: 24px; font-weight: 700; color: var(--accent); }
-.stat .label { font-size: 11px; color: var(--dim); }
-
-.log { font-size: 12px; color: var(--dim); max-height: 200px; overflow-y: auto; white-space: pre-wrap; line-height: 1.6; }
+.log { font-size: 12px; color: var(--dim); max-height: 200px; overflow-y: auto; white-space: pre-wrap; line-height: 1.6; font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace; }
 .log .ok { color: var(--accent2); }
 .log .warn { color: var(--warn); }
 .log .err { color: #ef4444; }
 
-.table-wrap { max-height: 400px; overflow: auto; border-radius: 6px; border: 1px solid var(--border); }
-table { border-collapse: collapse; width: 100%; font-size: 11px; }
-th { background: var(--accent); color: white; padding: 6px 8px; position: sticky; top: 0; text-align: left; font-weight: 600; }
-td { padding: 4px 8px; border-bottom: 1px solid var(--border); white-space: nowrap; position: relative; }
-tr:hover td { background: rgba(59,130,246,0.08); }
-td.num { text-align: right; font-variant-numeric: tabular-nums; }
-tr.section td { background: rgba(59,130,246,0.15); font-weight: 600; color: var(--accent); }
-td.editable { cursor: text; }
-td.editable:hover { outline: 1px solid var(--accent); }
-td.edited { font-style: italic; }
-.cell-attribution { font-size: 10px; background: var(--surface); border: 1px solid var(--border); border-radius: 4px; padding: 8px; max-width: 300px; }
-.attr-row { margin: 4px 0; }
-.attr-correction { color: var(--accent2); }
-.attr-unchanged { color: var(--dim); }
-.attr-confidence { color: var(--accent); }
-.attr-note { color: var(--warn); font-size: 9px; margin-top: 6px; }
-
-.actions { display: flex; gap: 12px; margin-top: 16px; }
 button { background: var(--accent); color: white; border: none; padding: 10px 24px; border-radius: 6px; font-family: inherit; font-size: 13px; cursor: pointer; font-weight: 600; }
 button:hover { filter: brightness(1.1); }
 button.secondary { background: var(--accent2); }
@@ -72,86 +45,50 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
 
 .hidden { display: none !important; }
 
+/* ── Summary line ── */
+#summaryLine { font-size: 14px; color: var(--text); margin-bottom: 12px; font-weight: 500; }
+
 /* ── Issue Review ── */
-#issueNav { display:flex; align-items:center; gap:8px; flex-wrap:wrap; padding:8px 12px; background:rgba(239,68,68,0.07); border:1px solid rgba(239,68,68,0.2); border-radius:6px; margin-bottom:8px; font-size:12px; }
+#issueNav { display:flex; align-items:center; gap:8px; flex-wrap:wrap; padding:8px 12px; background:rgba(239,68,68,0.07); border:1px solid rgba(239,68,68,0.2); border-radius:6px; margin-bottom:12px; font-size:12px; }
 #issueNav.no-issues { background:rgba(16,185,129,0.07); border-color:rgba(16,185,129,0.2); }
 .fl-cnt { font-weight:700; color:#dc2626; font-size:14px; }
 .fl-cnt.ok { color:var(--accent2); }
-td.fl-math { background:rgba(239,68,68,0.13)!important; outline:1px solid rgba(239,68,68,0.45); }
-td.fl-char { background:rgba(124,58,237,0.11)!important; outline:1px solid rgba(124,58,237,0.38); }
-td.fl-unit { background:rgba(245,158,11,0.12)!important; outline:1px solid rgba(245,158,11,0.38); }
-td.fl-conf { background:rgba(245,158,11,0.09)!important; outline:1px solid rgba(245,158,11,0.28); }
-td.fl-tail { background:rgba(16,185,129,0.07)!important; outline:1px dashed rgba(16,185,129,0.4); }
-tr.fl-active > td { box-shadow:inset 0 0 0 2px var(--accent)!important; }
 .fl-icon { display:inline-flex; align-items:center; font-size:10px; padding:1px 4px; border-radius:3px; cursor:pointer; vertical-align:middle; user-select:none; }
 .fl-icon.err  { background:#fecaca; color:#b91c1c; }
 .fl-icon.warn { background:#fef3c7; color:#92400e; }
 .fl-icon.info { background:#dbeafe; color:#1e40af; }
-.speak-btn { background:none; border:none; padding:0 3px; font-size:13px; cursor:pointer; color:var(--dim); opacity:0.5; vertical-align:middle; line-height:1; }
-.speak-btn:hover { opacity:1; }
-.reocr-btn { background:none; border:1px solid var(--border); padding:1px 5px; font-size:10px; border-radius:3px; cursor:pointer; color:var(--dim); vertical-align:middle; margin-left:3px; }
-.reocr-btn:hover { border-color:var(--accent); color:var(--accent); }
-/* Minimap */
-#minimapWrap { display:flex; gap:0; align-items:stretch; }
-#minimap { width:12px; flex-shrink:0; background:var(--border); border-radius:0 4px 4px 0; overflow:hidden; cursor:pointer; border:1px solid var(--border); border-left:none; position:relative; }
-/* Crop popover */
-#cropPop { position:fixed; z-index:800; background:var(--surface); border:1px solid var(--border); border-radius:8px; box-shadow:0 4px 20px rgba(0,0,0,0.2); padding:8px; display:none; pointer-events:none; max-width:440px; }
-#cropPop .cp-label { font-size:10px; color:var(--dim); margin-top:4px; font-style:italic; text-align:center; }
 
-#authOverlay {
-  position: fixed; inset: 0; z-index: 9999;
-  background: rgba(15,23,42,0.92); backdrop-filter: blur(6px);
-  display: flex; align-items: center; justify-content: center;
-}
-#authBox {
-  background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
-  padding: 36px 40px; width: 340px; text-align: center;
-}
-#authBox h2 { font-size: 16px; margin-bottom: 6px; }
-#authBox p  { font-size: 12px; color: var(--dim); margin-bottom: 20px; }
-#authToken  {
-  width: 100%; padding: 10px 12px; border-radius: 6px;
-  border: 1px solid var(--border); background: var(--bg); color: var(--text);
-  font-family: inherit; font-size: 14px; margin-bottom: 12px; letter-spacing: 0.05em;
-}
-#authToken:focus { outline: 2px solid var(--accent); border-color: transparent; }
-#authError { color: #ef4444; font-size: 11px; min-height: 16px; margin-bottom: 8px; }
+/* ── Download button ── */
+#dlXlsx { font-size: 15px; padding: 12px 32px; margin-bottom: 16px; }
+
+/* ── Tabulator overrides ── */
+#tabulatorTable { margin-bottom: 16px; }
+.tabulator .fl-badge { display:inline-flex; align-items:center; font-size:10px; padding:1px 4px; border-radius:3px; cursor:pointer; user-select:none; }
+.tabulator .fl-badge.err  { background:#fecaca; color:#b91c1c; }
+.tabulator .fl-badge.warn { background:#fef3c7; color:#92400e; }
+.tabulator .fl-badge.info { background:#dbeafe; color:#1e40af; }
+.tabulator .tabulator-row.section-row { background: rgba(59,130,246,0.12) !important; }
+.tabulator .tabulator-row.section-row .tabulator-cell { font-weight: 600; color: var(--accent); }
+.tabulator .tabulator-row.fl-active-row .tabulator-cell { box-shadow: inset 0 0 0 2px var(--accent) !important; }
+
+/* ── Log panel ── */
+#logPanel { margin-top: 16px; border: 1px solid var(--border); border-radius: 8px; padding: 8px 16px; background: var(--surface); }
+#logPanel summary { cursor: pointer; font-size: 13px; font-weight: 500; color: var(--dim); padding: 4px 0; }
 </style>
 </head>
 <body>
 
-<div id="authOverlay">
-  <div id="authBox">
-    <h2>🔑 Access Token Required</h2>
-    <p>Enter the token to use this tool.</p>
-    <input id="authToken" type="password" placeholder="Paste token here"
-           onkeydown="if(event.key==='Enter') submitAuth()">
-    <div id="authError"></div>
-    <button onclick="submitAuth()" style="width:100%;padding:10px;">Unlock</button>
-  </div>
-</div>
-
-<h1>PDF Table OCR → <span>Excel</span></h1>
-<p class="subtitle">Extract tables from scanned PDFs · Vietnamese text support · <em>100% private - no data uploaded</em></p>
-<p style="font-size: 11px; color: var(--dim); margin-bottom: 16px;">
-  ⚡ OCR backend:
-  <select id="ocrBackendSelect" style="font-size:11px;font-family:inherit;border:1px solid var(--border);border-radius:4px;padding:2px 4px;background:var(--surface);color:var(--text);">
-    <option value="onnx" selected>ONNX browser (PaddleOCR det + VietOCR rec)</option>
-    <option value="server">Server (PaddleOCR + EasyOCR)</option>
-    <option value="tesseract">Tesseract.js</option>
-  </select>
-  <span id="ocrBackendBadge" style="font-weight:600; color: var(--dim);"></span>
-  · <a href="#" onclick="clearAuthToken();return false;" style="font-size:11px;color:var(--dim);">change token</a>
-</p>
+<h1>CheepTable</h1>
+<p class="subtitle">Convert Vietnamese PDF tables to Excel</p>
 
 <div id="dropzone">
   <input type="file" id="fileInput" accept=".pdf">
   <p><strong>Drop PDF here</strong> or click to browse</p>
   <div style="margin-top: 12px;">
     <button onclick="loadSamplePDF()" style="background: var(--accent2); padding: 8px 16px; font-size: 12px;">
-      🎯 Try Sample PDF
+      Try Sample PDF
     </button>
-    <span style="font-size: 11px; color: var(--dim); margin-left: 8px;">Test with Vietnamese construction pricing table (1 KB)</span>
+    <span style="font-size: 11px; color: var(--dim); margin-left: 8px;">Test with Vietnamese construction pricing table</span>
   </div>
 </div>
 
@@ -159,92 +96,24 @@ tr.fl-active > td { box-shadow:inset 0 0 0 2px var(--accent)!important; }
   <div class="progress"><div class="progress-bar" id="pbar" style="width:0%"></div></div>
   <div style="margin-top: 8px; text-align: center;">
     <button id="cancelBtn" onclick="cancelProcessing()" style="background: #ef4444; padding: 6px 16px; font-size: 12px;">
-      ⛔ Cancel Processing
+      Cancel Processing
     </button>
-    <div id="progressText" style="font-size: 11px; color: var(--dim); margin-top: 4px;">Processing...</div>
+    <div id="progressText" style="font-size: 12px; color: var(--dim); margin-top: 4px;">Processing...</div>
   </div>
 </div>
 
-<div id="statsPanel" class="panel hidden">
-  <div class="panel-title">Extraction Stats</div>
-  <div class="stats-grid" id="stats"></div>
+<div id="resultPanel" class="hidden">
+  <div id="summaryLine"></div>
+  <div id="issueNav" class="hidden"></div>
+  <button id="dlXlsx" class="secondary" disabled>Download Excel (.xlsx)</button>
+  <div id="tabulatorTable"></div>
 </div>
 
-<div id="logPanel" class="panel hidden">
+<div id="logPanel" class="hidden">
   <details>
-    <summary style="cursor: pointer; font-size: 13px; font-weight: 600; color: var(--accent); padding: 12px 0;">
-      🔧 Technical Details (optional)
-    </summary>
+    <summary>Processing Log</summary>
     <div class="log" id="log"></div>
   </details>
-</div>
-
-<details id="dictPanel" class="panel">
-  <summary style="cursor: pointer; font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: var(--dim); margin-bottom: 0;">
-    <strong style="color: var(--accent);">⚙️ Advanced:</strong> Custom Dictionary (375 default + <span id="customCount">0</span> custom) · <em style="color: var(--dim); font-size: 10px;">Optional - click to expand</em>
-  </summary>
-  <div style="margin-top: 12px; display: flex; gap: 12px; margin-bottom: 12px;">
-    <input type="text" id="customWord" placeholder="Add Vietnamese word (e.g., đào, công, xây)"
-           onkeypress="if(event.key==='Enter') addCustomWord()"
-           style="flex: 1; background: var(--bg); border: 1px solid var(--border); color: var(--text); padding: 8px 12px; border-radius: 6px; font-family: inherit; font-size: 13px;">
-    <button onclick="addCustomWord()" style="padding: 8px 16px;">Add Word</button>
-    <button onclick="clearCustomWords()" class="secondary" style="padding: 8px 16px;">Clear All</button>
-  </div>
-  <div style="font-size: 11px; color: var(--dim); margin-bottom: 8px;">
-    Custom words: <span id="customWordsList" style="color: var(--text);">none</span>
-  </div>
-  <details style="font-size: 11px; color: var(--dim); margin-top: 8px;">
-    <summary style="cursor: pointer; color: var(--accent);">Export/Import Custom Dictionary</summary>
-    <div style="margin-top: 8px; display: flex; gap: 8px;">
-      <button onclick="exportCustomDict()" style="padding: 6px 12px; font-size: 11px;">Export JSON</button>
-      <button onclick="importCustomDict()" style="padding: 6px 12px; font-size: 11px;">Import JSON</button>
-    </div>
-  </details>
-</details>
-
-<div id="reviewPanel" class="panel hidden">
-  <div class="panel-title">Confidence Review</div>
-  <div style="font-size: 12px; color: var(--dim); line-height: 1.6;">
-    <div id="reviewStats">Analyzing confidence levels...</div>
-  </div>
-</div>
-
-<div id="issueNav" class="hidden"></div>
-
-<div id="previewPanel" class="panel hidden">
-  <div class="panel-title">Table Preview <span id="previewCount"></span> · <span style="color:var(--dim);font-size:10px">Click cells to edit · Hover desc for crop · 🔊 read aloud</span></div>
-  <div id="minimapWrap">
-    <div class="table-wrap" id="tableWrap" style="flex:1;min-width:0;"></div>
-    <div id="minimap" title="Click to navigate"></div>
-  </div>
-  <div class="actions">
-    <button id="dlXlsx" class="secondary" disabled>Download Excel (.xlsx)</button>
-    <button id="dlDebugJSON" onclick="exportDebugJSON()" disabled style="background: #8b5cf6;">📊 Export Debug Data</button>
-  </div>
-</div>
-
-<div id="vizPanel" class="panel hidden">
-  <div class="panel-title">Page Viewer <span id="vizWordCount" style="font-weight:normal;color:var(--dim)"></span></div>
-  <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;flex-wrap:wrap;">
-    <button id="vizPrev" onclick="vizNav(-1)" style="padding:4px 14px;font-size:13px;">◀</button>
-    <span id="vizPageLabel" style="font-size:13px;min-width:80px;text-align:center;">Page 1</span>
-    <button id="vizNext" onclick="vizNav(+1)" style="padding:4px 14px;font-size:13px;">▶</button>
-    <label style="font-size:11px;color:var(--dim);display:flex;align-items:center;gap:4px;">
-      <input type="checkbox" id="vizShowBoxes" checked onchange="renderVizPage()"> Show word boxes
-    </label>
-    <label style="font-size:11px;color:var(--dim);display:flex;align-items:center;gap:4px;">
-      <input type="checkbox" id="vizColorConf" onchange="renderVizPage()"> Color by confidence
-    </label>
-    <label style="font-size:11px;color:var(--dim);display:flex;align-items:center;gap:4px;">
-      <input type="checkbox" id="vizShowText" onchange="renderVizPage()"> Show text labels
-    </label>
-  </div>
-  <div style="overflow:auto;border:1px solid var(--border);border-radius:6px;max-height:680px;">
-    <canvas id="vizCanvas" style="display:block;"></canvas>
-  </div>
-  <div style="margin-top:6px;font-size:10px;color:var(--dim);">
-    Blue = numeric · Green = Vietnamese text · Amber = medium conf · Red = low conf
-  </div>
 </div>
 
 <script src="boq-utils.js"></script>
@@ -254,219 +123,68 @@ tr.fl-active > td { box-shadow:inset 0 0 0 2px var(--accent)!important; }
 <script src="boq-extract.js"></script>
 <script src="boq-ui.js"></script>
 <script src="boq-review.js"></script>
-<script src="boq-viz.js"></script>
 <script src="boq-export.js"></script>
 <script>
 // ── Config ──
-const LINE_TOLERANCE = 3;    // points: snap lines within this distance
-const MIN_LINE_LEN = 10;     // ignore lines shorter than this
-const CELL_PAD = 1.5;        // inset for text-in-cell matching
-const OCR_SCALE = 200 / 72;  // render at 200 DPI — PaddleOCR's max_side_limit is 4000px; 400 DPI exceeds it and gets resized down anyway
-const CELL_MATCH_MARGIN_PX   = 30;   // expand cell bbox for OCR inaccuracy tolerance
-const ORPHAN_NEAREST_CELL_PX = 100;  // max center-to-center distance for fallback assignment
-const ROW_Y_THRESHOLD_PX     = 10;   // vertical tolerance to group words into the same row
+const LINE_TOLERANCE = 3;
+const MIN_LINE_LEN = 10;
+const CELL_PAD = 1.5;
+const OCR_SCALE = 200 / 72;
+const CELL_MATCH_MARGIN_PX   = 30;
+const ORPHAN_NEAREST_CELL_PX = 100;
+const ROW_Y_THRESHOLD_PX     = 10;
 
 pdfjsLib.GlobalWorkerOptions.workerSrc =
   'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
 
-// ── Auth ──
-function getAuthToken()  { return localStorage.getItem('ocr_auth_token') || ''; }
-function authHeaders()   { const t = getAuthToken(); return t ? { 'Authorization': `Bearer ${t}` } : {}; }
-function clearAuthToken() {
-  localStorage.removeItem('ocr_auth_token');
-  document.getElementById('authOverlay').style.display = 'flex';
-  document.getElementById('authToken').value = '';
-  document.getElementById('authError').textContent = '';
-}
-function submitAuth() {
-  const val = document.getElementById('authToken').value.trim();
-  if (!val) { document.getElementById('authError').textContent = 'Token cannot be empty.'; return; }
-  localStorage.setItem('ocr_auth_token', val);
-  document.getElementById('authOverlay').style.display = 'none';
-  checkOCRServer();  // re-probe server with new token
-}
-// No auth required for public deployment
-document.getElementById('authOverlay').style.display = 'none';
+// ── Perf stubs ──
+const perfStart = () => {};
+const perfEnd = () => {};
+
+// ── Stubs for globals referenced by un-modified files (boq-extract.js, boq-ocr.js, boq-viet.js) ──
+const OCR_SERVER_URL = '';
+let ocrServerAvailable = false;
+let vpsApiAvailable = false;
+let diacriticCache = {};
+let debugData = { ocrWords: [], ocrLines: [], pdfMetadata: null };
+function authHeaders() { return {}; }
+function clearAuthToken() {}
+
 // ── State ──
 let extractedRows = [];
-let tesseractWorker = null;
-let tesseractInitializing = false; // SECURITY FIX #4: Prevent race condition
 let currentOCRPage = 0;
 let totalPDFPages = 0;
 let opencvReady = false;
 let syllableCorrector = null;
-let pdfDoc = null;          // stored for page viewer
-let vizCurrentPage = 1;     // page viewer current page
-const VIZ_SCALE = 150 / 72; // ~150 DPI for visualization
+let pdfDoc = null;
 
 // ── Review / Flag State ──
-let rowFlags    = {};  // rowIdx → [{type,message,severity,cellIdx}]
-let flagList    = [];  // flat sorted [{rowIdx,type,message,severity,cellIdx}]
+let rowFlags    = {};
+let flagList    = [];
 let currFlagIdx = -1;
 
-// ── Debug Data (for bbox visualization) ──
-let debugData = {
-  ocrWords: [],
-  ocrLines: [],
-  pdfMetadata: null
-};
-
-// ── Performance Profiling ──
-let perfTimings = {};
-window.perfStart = (label) => {
-  perfTimings[label] = { start: performance.now() };
-};
-window.perfEnd = (label) => {
-  if (perfTimings[label]) {
-    perfTimings[label].end = performance.now();
-    perfTimings[label].duration = perfTimings[label].end - perfTimings[label].start;
-    console.log(`⏱️ ${label}: ${perfTimings[label].duration.toFixed(0)}ms`);
-  }
-};
-window.getPerfReport = () => {
-  const report = {};
-  for (const [label, timing] of Object.entries(perfTimings)) {
-    report[label] = timing.duration ? `${timing.duration.toFixed(0)}ms` : 'incomplete';
-  }
-  return report;
-};
-
-// Get optimization suggestions
-window.getOptimizationReport = () => {
-  const timings = window.getPerfReport();
-  const report = {
-    currentSettings: {
-      ocrScale: OCR_SCALE,
-      ocrDPI: Math.round(OCR_SCALE * 72),
-      tessdata: 'tessdata_best (highest quality, slowest)',
-      psmMode: 3,
-      oemMode: 1
-    },
-    timings: timings,
-    bottlenecks: [],
-    optimizations: []
-  };
-
-  // Analyze bottlenecks
-  const totalTime = Object.values(perfTimings).reduce((sum, t) => sum + (t.duration || 0), 0);
-  for (const [label, timing] of Object.entries(perfTimings)) {
-    if (timing.duration && timing.duration > 1000) { // >1 second
-      const pct = (timing.duration / totalTime * 100).toFixed(1);
-      report.bottlenecks.push({
-        operation: label,
-        time: `${timing.duration.toFixed(0)}ms`,
-        percentage: `${pct}%`
-      });
-    }
-  }
-
-  // Suggest optimizations
-  if (OCR_SCALE > 200/72) {
-    const speedup = Math.pow(OCR_SCALE / (200/72), 2);
-    report.optimizations.push({
-      option: 'Lower OCR resolution to 200 DPI',
-      change: 'OCR_SCALE = 200/72',
-      speedup: `~${speedup.toFixed(1)}x faster`,
-      tradeoff: '~5-10% accuracy loss'
-    });
-  }
-
-  report.optimizations.push({
-    option: 'Use tessdata_fast instead of tessdata_best',
-    change: 'langPath: "https://cdn.jsdelivr.net/gh/tesseract-ocr/tessdata_fast"',
-    speedup: '~3-4x faster',
-    tradeoff: '~10-15% accuracy loss'
-  });
-
-  report.optimizations.push({
-    option: 'Disable debug image storage',
-    change: 'Comment out: debugData.pageImages.push(imgData)',
-    speedup: 'Saves toDataURL() time + memory',
-    tradeoff: 'No bbox visualization'
-  });
-
-  report.optimizations.push({
-    option: 'Use standard tessdata (balanced)',
-    change: 'langPath: "https://cdn.jsdelivr.net/gh/tesseract-ocr/tessdata"',
-    speedup: '~2x faster than best',
-    tradeoff: '~5% accuracy loss'
-  });
-
-  return report;
-};
 let processingCancelled = false;
+
 // ── OpenCV.js Initialization ──
 function onOpenCvReady() {
   if (typeof cv !== 'undefined') {
-    // Check if OpenCV is already initialized
     if (typeof cv.imread === 'function') {
       opencvReady = true;
-      log('✓ OpenCV.js loaded (6MB, WebAssembly)', 'ok');
+      log('OpenCV.js loaded', 'ok');
     } else {
-      // Set up callback for when it initializes
       cv['onRuntimeInitialized'] = () => {
         opencvReady = true;
-        log('✓ OpenCV.js loaded (6MB, WebAssembly)', 'ok');
+        log('OpenCV.js loaded', 'ok');
       };
     }
   }
 }
 
-// VPS API Configuration
-// SECURITY FIX #5: Make VPS API URL configurable instead of hardcoded
-const DEFAULT_VPS_API_URL = 'http://localhost:5001/restore';
-const VPS_API_URL = localStorage.getItem('vps_api_url') || DEFAULT_VPS_API_URL;
-let vpsApiAvailable = null; // null = unknown, true = working, false = offline
-let diacriticCache = {}; // In-memory cache for this session
+let onnxBackendAvailable = null;
 
-// Hybrid OCR server (PaddleOCR detection + EasyOCR Vietnamese recognition)
-// Use the same host the page was served from so it works via IP (e.g. http://ip:8080/new.html)
-const OCR_SERVER_URL = `http://${window.location.hostname || 'localhost'}:5000`;
-let ocrServerAvailable = null; // null = untested, true = online, false = offline
-let onnxBackendAvailable = null; // null = untested, true = loaded, false = failed
+// ── Viz stub ──
+function showVizPanel() {}
 
-// Re-probe OCR server (called after auth token changes)
-async function checkOCRServer() {
-  ocrServerAvailable = null;
-  try {
-    const r = await fetch(`${OCR_SERVER_URL}/health`, {
-      headers: authHeaders(),
-      signal: AbortSignal.timeout(4000)
-    });
-    if (r.ok) ocrServerAvailable = true;
-  } catch { /* offline */ }
-  updateBackendBadge();
-}
-
-// Probe backends at page load and update badge
-(async function probeBackends() {
-  const badge = document.getElementById('ocrBackendBadge');
-  const select = document.getElementById('ocrBackendSelect');
-  // Check server
-  try {
-    const r = await fetch(`${OCR_SERVER_URL}/health`, { signal: AbortSignal.timeout(4000) });
-    if (r.ok) ocrServerAvailable = true;
-  } catch { /* server offline */ }
-  // Update badge based on selected backend
-  updateBackendBadge();
-})();
-
-function updateBackendBadge() {
-  const badge = document.getElementById('ocrBackendBadge');
-  const sel = document.getElementById('ocrBackendSelect');
-  if (!badge || !sel) return;
-  const v = sel.value;
-  if (v === 'server') {
-    if (ocrServerAvailable) { badge.textContent = '🟢 online'; badge.style.color = '#22c55e'; }
-    else { badge.textContent = '🔴 offline'; badge.style.color = '#ef4444'; }
-  } else if (v === 'onnx') {
-    if (onnxBackendAvailable) { badge.textContent = '🟢 ready'; badge.style.color = '#22c55e'; }
-    else { badge.textContent = '🟡 will load on first use (~77 MB)'; badge.style.color = '#f59e0b'; }
-  } else {
-    badge.textContent = '🟢 ready'; badge.style.color = '#22c55e';
-  }
-}
-document.getElementById('ocrBackendSelect').addEventListener('change', updateBackendBadge);
 // ── UI Refs ──
 const $ = id => document.getElementById(id);
 const dropzone = $('dropzone');
@@ -495,7 +213,7 @@ async function loadSamplePDF() {
     const file = new File([blob], 'sample.pdf', { type: 'application/pdf' });
     await handleFile(file);
   } catch (err) {
-    log(`❌ Error loading sample: ${err.message}`, 'err');
+    log('Error loading sample: ' + err.message, 'err');
     alert('Sample PDF not found.\n\nPlease upload your own PDF file.');
   }
 }
@@ -503,7 +221,7 @@ async function loadSamplePDF() {
 // ── Cancel Processing ──
 function cancelProcessing() {
   processingCancelled = true;
-  log('⛔ Processing cancelled by user', 'warn');
+  log('Processing cancelled by user', 'warn');
   $('progressPanel').classList.add('hidden');
   $('pbar').style.width = '0%';
   alert('Processing cancelled.\n\nYou can upload a different file.');
@@ -516,34 +234,33 @@ dropzone.addEventListener('drop', e => { e.preventDefault(); dropzone.classList.
 fileInput.addEventListener('change', e => handleFile(e.target.files[0]));
 
 async function handleFile(file) {
-  // Reset cancellation flag
   processingCancelled = false;
 
-  // Validation
   if (!file) {
     log('No file selected', 'err');
     return;
   }
 
   if (!file.name.endsWith('.pdf')) {
-    log('❌ Error: Please select a PDF file', 'err');
+    log('Error: Please select a PDF file', 'err');
     alert('This app only works with PDF files. Please select a .pdf file.');
     return;
   }
 
   const sizeMB = file.size / (1024 * 1024);
   if (sizeMB > 50) {
-    log(`❌ Error: File too large (${sizeMB.toFixed(1)} MB)`, 'err');
-    alert(`File is too large (${sizeMB.toFixed(1)} MB).\n\nMaximum file size: 50 MB\n\nLarge files may crash your browser. Please use a smaller PDF.`);
+    log('Error: File too large (' + sizeMB.toFixed(1) + ' MB)', 'err');
+    alert('File is too large (' + sizeMB.toFixed(1) + ' MB).\n\nMaximum file size: 50 MB');
     return;
   }
 
   if (sizeMB > 10) {
-    log(`⚠️ Warning: Large file (${sizeMB.toFixed(1)} MB) - processing may take several minutes`, 'warn');
+    log('Warning: Large file (' + sizeMB.toFixed(1) + ' MB) - processing may take several minutes', 'warn');
   }
 
-  log(`Loading: ${file.name} (${(file.size/1024).toFixed(0)} KB)`);
+  log('Loading: ' + file.name + ' (' + (file.size/1024).toFixed(0) + ' KB)');
   $('progressPanel').classList.remove('hidden');
+  $('resultPanel').classList.add('hidden');
 
   try {
     const buf = await file.arrayBuffer();
@@ -553,27 +270,20 @@ async function handleFile(file) {
       log('Processing cancelled', 'warn');
       return;
     }
-    log(`❌ Fatal error: ${err.message}`, 'err');
-    alert(`Processing failed: ${err.message}\n\nPlease try:\n1. A smaller PDF file\n2. Refreshing the page\n3. Using a different browser`);
+    log('Fatal error: ' + err.message, 'err');
+    alert('Processing failed: ' + err.message + '\n\nPlease try:\n1. A smaller PDF file\n2. Refreshing the page\n3. Using a different browser');
     console.error(err);
     $('progressPanel').classList.add('hidden');
   }
 }
+
 // ── Core Pipeline ──
 async function extractPDF(buffer) {
   const pdf = await pdfjsLib.getDocument({ data: buffer }).promise;
-  pdfDoc = pdf;  // store for page viewer
+  pdfDoc = pdf;
   const numPages = pdf.numPages;
-  totalPDFPages = numPages; // Set global for fine-grained progress updates
-  log(`PDF loaded: ${numPages} pages`, 'ok');
-
-  // Initialize debug data
-  debugData = {
-    ocrWords: [],
-    ocrLines: [],
-    // PDF buffer removed - bbox viz disabled // Store PDF buffer for bbox visualization
-    pdfMetadata: null
-  };
+  totalPDFPages = numPages;
+  log('PDF loaded: ' + numPages + ' pages', 'ok');
 
   let allTextItems = [];
   let allLines = [];
@@ -581,24 +291,36 @@ async function extractPDF(buffer) {
   let allOcrWords = [];
   let allOcrLines = [];
   let allBorderCells = [];
-  const pageCanvases = {};   // page → canvas, kept for per-cell re-OCR
-  window._pageCanvases = pageCanvases;  // expose for crop popover + re-OCR
+  const pageCanvases = {};
   let ocrPageCount = 0;
   let totalConfidence = 0;
   let totalOcrWords = 0;
 
-  // Sequential per-page loop: render → border → OCR → accumulate.
-  // True parallelism requires a multi-worker server (gunicorn); single-worker
-  // Flask with a threading.Lock serialises inference anyway so pipeline offers no gain.
+  // ── ETA tracking ──
+  const pageTimings = [];
 
   for (let p = 1; p <= numPages; p++) {
     if (processingCancelled) {
-      log('⛔ Processing cancelled', 'warn');
+      log('Processing cancelled', 'warn');
       $('progressPanel').classList.add('hidden');
       return;
     }
 
-    $('progressText').textContent = `Processing page ${p} of ${numPages}...`;
+    const pageStartTime = performance.now();
+
+    // ETA display
+    if (pageTimings.length === 0) {
+      $('progressText').textContent = 'Processing page ' + p + ' of ' + numPages + '...';
+    } else {
+      const avgMs = pageTimings.reduce((a, b) => a + b, 0) / pageTimings.length;
+      const remainingPages = numPages - p + 1;
+      const etaMs = avgMs * remainingPages;
+      const etaStr = formatETA(etaMs);
+      $('progressText').textContent = 'Page ' + p + '/' + numPages + ' — ~' + etaStr + ' remaining';
+    }
+
+    $('pbar').style.width = ((p - 1) / numPages * 85) + '%';
+
     const page = await pdf.getPage(p);
     const vp = page.getViewport({ scale: 1.0 });
     const pageH = vp.height;
@@ -614,72 +336,35 @@ async function extractPDF(buffer) {
     }));
 
     if (pageText.length > 0) {
-      // Text-based page: native extraction
       const opList = await page.getOperatorList();
       totalOps += opList.fnArray.length;
       const pageLines = extractLines(opList, pageH, p);
-      log(`  Page ${p}: ${pageText.length} text spans, ${pageLines.length} lines (native)`);
+      log('  Page ' + p + ': ' + pageText.length + ' text spans, ' + pageLines.length + ' lines (native)');
       allTextItems.push(...pageText);
       allLines.push(...pageLines);
     } else {
-      // Image-based page: OCR
-      if (!tesseractWorker && !tesseractInitializing) {
-        tesseractInitializing = true;
-        log('Initializing Tesseract OCR (Vietnamese tessdata_best)...', 'warn');
-        perfStart('Tesseract initialization');
-        try {
-          tesseractWorker = await initTesseract();
-          perfEnd('Tesseract initialization');
-          log('Tesseract ready', 'ok');
-        } finally {
-          tesseractInitializing = false;
-        }
-      }
-      while (tesseractInitializing && !tesseractWorker) {
-        await new Promise(resolve => setTimeout(resolve, 100));
+      // Image-based page: ONNX OCR
+      if (!onnxBackendAvailable) {
+        log('Initializing ONNX models (first time ~77 MB download)...', 'warn');
+        const ok = await initOnnxOCR((msg) => {
+          $('progressText').textContent = msg;
+        });
+        if (!ok) throw new Error('ONNX initialization failed');
+        onnxBackendAvailable = true;
       }
 
-      perfStart(`Page ${p}: renderCanvas`);
       const canvas = await renderPageToCanvas(page, OCR_SCALE);
       pageCanvases[p] = canvas;
-      perfEnd(`Page ${p}: renderCanvas`);
 
       let borderData = { cells: [], lines: { horizontal: [], vertical: [] } };
       if (opencvReady) {
-        perfStart(`Page ${p}: Border detection`);
         borderData = await detectTableBorders(canvas);
-        perfEnd(`Page ${p}: Border detection`);
       }
 
-      perfStart(`Page ${p}: OCR`);
       currentOCRPage = p;
 
       try {
-        let ocrResult;
-        const selectedBackend = document.getElementById('ocrBackendSelect').value;
-
-        if (selectedBackend === 'server') {
-          ocrResult = await ocrPageWithServer(canvas, p);
-          ocrServerAvailable = true;
-          if (ocrPageCount === 0) log(`✓ Using server backend (PaddleOCR + EasyOCR)`, 'ok');
-        } else if (selectedBackend === 'onnx') {
-          // Lazy-init ONNX on first use
-          if (!onnxBackendAvailable) {
-            const badge = document.getElementById('ocrBackendBadge');
-            log(`Initializing ONNX models (first time ~77 MB download)...`, 'warn');
-            if (badge) { badge.textContent = '⏳ loading models...'; badge.style.color = '#f59e0b'; }
-            const ok = await initOnnxOCR((msg) => { if (badge) badge.textContent = '⏳ ' + msg; });
-            if (!ok) throw new Error('ONNX initialization failed');
-            onnxBackendAvailable = true;
-            updateBackendBadge();
-          }
-          ocrResult = await ocrPageWithOnnx(canvas, p);
-          if (ocrPageCount === 0) log(`✓ Using ONNX browser backend (PaddleOCR det + VietOCR rec)`, 'ok');
-        } else {
-          ocrResult = await ocrPageWithTimeout(canvas, p, 30000);
-          if (ocrPageCount === 0) log(`✓ Using Tesseract.js backend`, 'ok');
-        }
-        perfEnd(`Page ${p}: OCR`);
+        const ocrResult = await ocrPageWithOnnx(canvas, p);
         ocrPageCount++;
 
         const pageWords = ocrResult.words;
@@ -690,7 +375,7 @@ async function extractPDF(buffer) {
           : 0;
         totalConfidence += pageConf * pageWords.length;
 
-        log(`  Page ${p}: ${pageWords.length} OCR words, ${pageOcrLines.length} lines (avg conf: ${pageConf.toFixed(1)}%)`, 'ok');
+        log('  Page ' + p + ': ' + pageWords.length + ' OCR words, ' + pageOcrLines.length + ' lines (avg conf: ' + pageConf.toFixed(1) + '%)' , 'ok');
         allOcrWords.push(...pageWords);
         allOcrLines.push(...pageOcrLines);
 
@@ -705,102 +390,70 @@ async function extractPDF(buffer) {
           })));
         }
       } catch (error) {
-        perfEnd(`Page ${p}: OCR`);
-        log(`  ⚠️ Page ${p}: OCR TIMEOUT after 30s - ${error.message}`, 'err');
-        console.error(`[OCR TIMEOUT] Page ${p}:`, error);
+        log('  Page ' + p + ': OCR error - ' + error.message, 'err');
+        console.error('[OCR Error] Page ' + p + ':', error);
         continue;
       }
     }
 
     page.cleanup();
+    pageTimings.push(performance.now() - pageStartTime);
   }
 
   // Pass 2: Table extraction
   $('pbar').style.width = '85%';
+  $('progressText').textContent = 'Building table...';
 
   let rows;
   if (allOcrWords.length > 0) {
-    log(`OCR total: ${allOcrWords.length} words across ${ocrPageCount} pages`, 'ok');
+    log('OCR total: ' + allOcrWords.length + ' words across ' + ocrPageCount + ' pages', 'ok');
     if (allBorderCells.length > 0) {
-      log(`Border detection: ${allBorderCells.length} cells detected`, 'ok');
-      window._debugBorderCells = allBorderCells;
+      log('Border detection: ' + allBorderCells.length + ' cells detected', 'ok');
     }
-    perfStart('Table extraction');
     rows = await ocrTableExtract(allOcrLines, allOcrWords, allBorderCells, pageCanvases);
-    perfEnd('Table extraction');
   } else if (allLines.length > 20) {
     log('Using LATTICE mode (lines detected)', 'ok');
-    perfStart('Lattice extraction');
     rows = await latticeExtract(allTextItems, allLines, numPages);
-    perfEnd('Lattice extraction');
   } else {
     log('Using alternative table detection method...', 'ok');
-    perfStart('Text cluster extraction');
     rows = await textClusterExtract(allTextItems);
-    perfEnd('Text cluster extraction');
   }
 
-  console.log(`[extractPDF] Extraction returned ${rows ? rows.length : 'null'} rows`);
   $('pbar').style.width = '95%';
   extractedRows = rows;
-  window.extractedRows = rows;  // expose for console/rodney access
 
-  console.log(`[extractPDF] Filtering rows by type...`);
   const dataRows = rows.filter(r => r.type === 'data').length;
   const sectionRows = rows.filter(r => r.type === 'section').length;
   const avgConf = totalOcrWords > 0 ? (totalConfidence / totalOcrWords).toFixed(1) : null;
 
-  console.log(`[extractPDF] Calling showStats with ${rows.length} rows...`);
   showStats({
     pages: numPages,
-    ocrWords: totalOcrWords,
-    avgConfidence: avgConf,
-    textSpans: allTextItems.length,
-    lines: allLines.length,
-    ops: totalOps,
     rows: rows.length,
     dataRows,
     sectionRows
   });
-  log(`Extracted ${rows.length} rows (${dataRows} data, ${sectionRows} sections)`, 'ok');
-
-  // Store debug data for visualization
-  debugData = {
-    ocrWords: allOcrWords,
-    ocrLines: allOcrLines,
-    pageImages: [],
-    pdfMetadata: {
-      numPages: numPages,
-      totalWords: totalOcrWords,
-      avgConfidence: avgConf,
-      extractedRows: rows.length,
-      dataRows: dataRows,
-      sectionRows: sectionRows
-    }
-  };
+  log('Extracted ' + rows.length + ' rows (' + dataRows + ' data, ' + sectionRows + ' sections)', 'ok');
 
   renderPreview(rows);
   $('pbar').style.width = '100%';
   setTimeout(() => $('progressPanel').classList.add('hidden'), 500);
 }
 
+// ── ETA Formatter ──
+function formatETA(ms) {
+  const totalSec = Math.round(ms / 1000);
+  if (totalSec < 60) return totalSec + 's';
+  const min = Math.floor(totalSec / 60);
+  const sec = totalSec % 60;
+  if (min < 60) return min + ' min ' + (sec > 0 ? sec + 's' : '');
+  const hr = Math.floor(min / 60);
+  return hr + 'h ' + (min % 60) + 'min';
+}
+
 // ── Init ──
-updateCustomWordsUI();  // Load custom dictionary UI on page load
-diacriticCache = loadDiacriticCache();  // Load VPS API cache
-
-setupExport();  // register XLSX export event listener
+setupExport();
 log('Ready. Drop a PDF to begin.');
-log('Pipeline: pdf.js (text + vectors) → Tesseract.js OCR fallback → table extraction → SheetJS export');
-log('Diacritic correction: VPS API (94% accuracy) → Dictionary → Syllable model fallback');
-log('No data leaves your browser.\n');
-
-// ── Cleanup ──
-window.addEventListener('beforeunload', () => {
-  if (tesseractWorker) tesseractWorker.terminate();
-});
 
 </script>
-<div id="cropPop"><canvas id="cropCanvas"></canvas><div class="cp-label" id="cropLabel"></div></div>
 </body>
 </html>
-
