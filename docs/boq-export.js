@@ -1,4 +1,4 @@
-// boq-export.js — export functions: XLSX, debug JSON, CSV helper
+// boq-export.js — export functions: XLSX
 'use strict';
 
 // Called from init after DOM is ready
@@ -6,7 +6,7 @@ function setupExport() {
   document.getElementById('dlXlsx').addEventListener('click', () => {
     if (extractedRows.length === 0) return;
     const maxCols = Math.max(...extractedRows.map(r => r.cells.length));
-    const headers = Array.from({ length: maxCols }, (_, i) => `Column ${i + 1}`);
+    const headers = Array.from({ length: maxCols }, (_, i) => COL_NAMES[i] || 'Column ' + (i + 1));
 
     const aoa = [headers];
     for (const row of extractedRows) {
@@ -29,7 +29,7 @@ function setupExport() {
     ws['!cols'] = [{ wch:6 },{ wch:60 },{ wch:10 },{ wch:14 },{ wch:16 },{ wch:18 }].slice(0, maxCols);
     XLSX.utils.book_append_sheet(wb, ws, 'Extracted Table');
 
-    // ── Review sheet: flagged rows only ──
+    // Review sheet: flagged rows only
     if (flagList.length > 0) {
       const getVal = c => (typeof c === 'object' && c) ? (c.value || '') : (c || '');
       const reviewAoa = [
@@ -50,52 +50,12 @@ function setupExport() {
       const wsReview = XLSX.utils.aoa_to_sheet(reviewAoa);
       wsReview['!cols'] = [{ wch:6 },{ wch:6 },{ wch:50 },{ wch:8 },{ wch:12 },{ wch:14 },{ wch:16 },{ wch:18 },{ wch:60 }];
       XLSX.utils.book_append_sheet(wb, wsReview, 'Cần kiểm tra');
-      log(`Review sheet: ${reviewAoa.length - 1} flagged rows`, 'warn');
+      log('Review sheet: ' + (reviewAoa.length - 1) + ' flagged rows', 'warn');
     }
 
     XLSX.writeFile(wb, 'table_extracted.xlsx');
     log('XLSX exported!', 'ok');
   });
-}
-
-// ── Debug: Export JSON ──
-function exportDebugJSON() {
-  if (!debugData || !debugData.ocrWords || debugData.ocrWords.length === 0) {
-    alert('No debug data available. Process a PDF first.');
-    return;
-  }
-
-  const exportData = {
-    metadata: debugData.pdfMetadata,
-    statistics: {
-      totalWords: debugData.ocrWords.length,
-      totalLines: debugData.ocrLines.length,
-      totalPages: (debugData.pageImages || []).length,
-      avgConfidence: debugData.ocrWords.length > 0
-        ? (debugData.ocrWords.reduce((sum, w) => sum + w.confidence, 0) / debugData.ocrWords.length).toFixed(1)
-        : 0
-    },
-    ocrWords: debugData.ocrWords,
-    ocrLines: debugData.ocrLines,
-    extractedRows: extractedRows.map(row => ({
-      type: row.type,
-      cells: row.cells.map(cell => ({
-        value: typeof cell === 'object' ? cell.value : cell,
-        original: typeof cell === 'object' ? cell.original : cell,
-        confidence: typeof cell === 'object' ? cell.confidence : null
-      }))
-    })),
-    columnBoundaries: debugData.columnBoundaries
-  };
-
-  const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = 'ocr_debug_data.json';
-  a.click();
-  URL.revokeObjectURL(url);
-  log('Debug JSON exported!', 'ok');
 }
 
 function downloadBlob(content, filename, mime) {
