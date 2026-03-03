@@ -20,8 +20,7 @@ function renderPreview(rows) {
   const maxCols = Math.max(...rows.map(r => r.cells.length), 1);
   const colHeaders = Array.from({ length: maxCols }, (_, i) => COL_NAMES[i] || 'Col ' + (i + 1));
 
-  // Flag severity mapping
-  const FLAG_SEV = { err: 'err', warn: 'warn', info: 'info' };
+  // (only conf flags now — single severity)
 
   // Build flat data for Tabulator
   const tableData = rows.map((row, idx) => {
@@ -58,12 +57,10 @@ function renderPreview(rows) {
     formatter: function(cell) {
       const flags = cell.getValue();
       if (!flags || flags.length === 0) return '';
-      const topFlag = flags[0];
-      const sev = FLAG_SEV[topFlag.severity] || 'info';
       const tip = flags.map(f => f.message).join('\n');
-      const label = flags.length > 1 ? flags.length : (topFlag.severity === 'err' ? '\u2715' : '!');
+      const label = flags.length > 1 ? flags.length : '!';
       const span = document.createElement('span');
-      span.className = 'fl-badge ' + sev;
+      span.className = 'fl-badge';
       span.textContent = label;
       span.title = tip;
       span.addEventListener('click', function() { jumpToFlagRow(cell.getRow().getData()._rowIdx); });
@@ -106,27 +103,8 @@ function renderPreview(rows) {
         const el = document.createElement('span');
         el.textContent = val;
 
-        // Flag coloring takes priority
-        if (cellFlags.length > 0) {
-          const type = cellFlags[0].type;
-          if (type === 'math') {
-            cell.getElement().style.background = 'rgba(239,68,68,0.13)';
-            cell.getElement().style.outline = '1px solid rgba(239,68,68,0.45)';
-          } else if (type === 'chartype') {
-            cell.getElement().style.background = 'rgba(124,58,237,0.11)';
-            cell.getElement().style.outline = '1px solid rgba(124,58,237,0.38)';
-          } else if (type === 'unit') {
-            cell.getElement().style.background = 'rgba(245,158,11,0.12)';
-            cell.getElement().style.outline = '1px solid rgba(245,158,11,0.38)';
-          } else if (type === 'conf' || type === 'short') {
-            cell.getElement().style.background = 'rgba(245,158,11,0.09)';
-            cell.getElement().style.outline = '1px solid rgba(245,158,11,0.28)';
-          } else if (type === 'tail') {
-            cell.getElement().style.background = 'rgba(16,185,129,0.07)';
-            cell.getElement().style.outline = '1px dashed rgba(16,185,129,0.4)';
-          }
-        } else if (conf !== null && conf !== undefined && conf < 90) {
-          // Confidence coloring
+        // Confidence coloring — only on cells with actual measured confidence
+        if (val && conf !== null && conf !== undefined && conf > 0 && conf < 90) {
           cell.getElement().style.background = getConfidenceColor(conf);
           cell.getElement().style.border = getConfidenceBorder(conf);
         }
