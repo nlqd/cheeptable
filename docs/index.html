@@ -6,7 +6,7 @@
 <title>CheepTable — PDF Table OCR to Excel</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/onnxruntime-web@1.22.0/dist/ort.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/onnxruntime-web@1.24.2/dist/ort.webgpu.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/clipper-lib@6.4.2/clipper.js"></script>
 <script async src="https://docs.opencv.org/4.x/opencv.js" onload="onOpenCvReady();" type="text/javascript"></script>
 <link href="https://unpkg.com/tabulator-tables@6.3.1/dist/css/tabulator_simple.min.css" rel="stylesheet">
@@ -71,7 +71,7 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
 </head>
 <body>
 
-<h1>CheepTable</h1>
+<h1>CheepTable <span id="backendBadge" style="display:none; font-size:12px; font-weight:500; padding:2px 8px; border-radius:12px; vertical-align:middle;"></span></h1>
 <p class="subtitle">Convert Vietnamese PDF tables to Excel</p>
 
 <div id="dropzone">
@@ -344,6 +344,14 @@ async function extractPDF(buffer) {
         });
         if (!ok) throw new Error('ONNX initialization failed');
         onnxBackendAvailable = true;
+        const badge = $('backendBadge');
+        if (window.onnxBackend === 'webgpu') {
+          badge.textContent = '⚡ GPU';
+          badge.style.cssText += 'background:#dcfce7;color:#166534;display:inline;';
+        } else {
+          badge.textContent = 'CPU';
+          badge.style.cssText += 'background:#f1f5f9;color:#64748b;display:inline;';
+        }
       }
 
       const canvas = await renderPageToCanvas(page, OCR_SCALE);

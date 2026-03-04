@@ -87,10 +87,15 @@ async function initOnnxOCR(progressCb) {
       throw new Error('onnxruntime-web not loaded');
     }
 
-    ort.env.wasm.wasmPaths = 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.22.0/dist/';
+    ort.env.wasm.wasmPaths = 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.24.2/dist/';
+    ort.env.wasm.numThreads = 1; // avoid SharedArrayBuffer/COOP-COEP requirement
 
-    const backend = (navigator.gpu) ? 'webgpu' : 'wasm';
-    const opts = { executionProviders: [backend, 'wasm'] };
+    let useWebGPU = false;
+    if (navigator.gpu) {
+      try { useWebGPU = !!(await navigator.gpu.requestAdapter()); } catch (_) {}
+    }
+    const webgpuOpts = { executionProviders: ['webgpu', 'wasm'] };
+    const wasmOpts   = { executionProviders: ['wasm'] };
 
     if (progressCb) progressCb('Loading ONNX models (77 MB first time)...');
 
@@ -104,22 +109,39 @@ async function initOnnxOCR(progressCb) {
 
     if (progressCb) progressCb('Creating ONNX sessions...');
 
-    [_detSession, _encSession, _decSession] = await Promise.all([
-      ort.InferenceSession.create(detBuf, opts),
-      ort.InferenceSession.create(encBuf, opts),
-      ort.InferenceSession.create(decBuf, opts),
-    ]);
+    let backend = 'wasm';
+    if (useWebGPU) {
+      try {
+        [_detSession, _encSession, _decSession] = await Promise.all([
+          ort.InferenceSession.create(detBuf, webgpuOpts),
+          ort.InferenceSession.create(encBuf, webgpuOpts),
+          ort.InferenceSession.create(decBuf, webgpuOpts),
+        ]);
+        backend = 'webgpu';
+      } catch (e) {
+        console.warn('[ONNX] WebGPU session init failed, falling back to wasm:', e);
+      }
+    }
+    if (backend === 'wasm') {
+      [_detSession, _encSession, _decSession] = await Promise.all([
+        ort.InferenceSession.create(detBuf, wasmOpts),
+        ort.InferenceSession.create(encBuf, wasmOpts),
+        ort.InferenceSession.create(decBuf, wasmOpts),
+      ]);
+    }
 
     _vocab = vocabResp.split('\n').filter(l => l.length > 0 || l === '');
     // Ensure empty lines map to space character (index for space in vocab)
     _vocab = vocabResp.split('\n').map(l => l === '' ? '' : l);
 
     onnxReady = true;
+    window.onnxBackend = backend;
     console.log(`[ONNX] Ready. Backend: ${backend}, vocab: ${_vocab.length} tokens`);
     return true;
 
   } catch (e) {
     console.error('[ONNX] Init failed:', e);
+    if (progressCb) progressCb('ONNX init failed: ' + e.message);
     onnxReady = false;
     return false;
   } finally {
