@@ -661,11 +661,42 @@ function wordGridExtract(pageWords, pageCells) {
     }
   }
 
-  // Build text for each non-empty cell (words sorted left-to-right)
+  // Sort words within each cell left-to-right
+  for (const row of grid) {
+    for (const cell of row) {
+      if (cell.words.length > 0) cell.words.sort((a, b) => a.x - b.x);
+    }
+  }
+
+  // Fix column-boundary word splitting: if the last word of cell N and the
+  // first word of cell N+1 are very close (< MERGE_GAP px), the column
+  // boundary accidentally split a compound token. Merge the stray word back.
+  const MERGE_GAP = 10; // canvas pixels (~3.6 PDF points)
+  for (const row of grid) {
+    for (let ci = 0; ci < numCols - 1; ci++) {
+      const left = row[ci], right = row[ci + 1];
+      if (left.words.length === 0 || right.words.length === 0) continue;
+      const lastLeft   = left.words[left.words.length - 1];
+      const firstRight = right.words[0];
+      const gapToLeft  = firstRight.x - lastLeft.x1;
+      if (gapToLeft < MERGE_GAP) {
+        // Also check: is firstRight closer to its left neighbor than its right?
+        // If right cell has a second word, compare gaps.
+        if (right.words.length >= 2) {
+          const secondRight = right.words[1];
+          const gapToRight  = secondRight.x - firstRight.x1;
+          if (gapToLeft >= gapToRight) continue; // closer to its own cell, skip
+        }
+        // Move firstRight into left cell
+        left.words.push(right.words.shift());
+      }
+    }
+  }
+
+  // Build text for each non-empty cell
   for (const row of grid) {
     for (const cell of row) {
       if (cell.words.length > 0) {
-        cell.words.sort((a, b) => a.x - b.x);
         cell.text       = cell.words.map(w => w.text).join(' ').trim();
         cell.confidence = cell.words.reduce((s, w) => s + w.confidence, 0) / cell.words.length;
       }
