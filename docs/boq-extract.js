@@ -703,6 +703,29 @@ function wordGridExtract(pageWords, pageCells) {
     }
   }
 
+  // Post-process: fix unit text bleeding into numeric columns (cols 3-5).
+  // PaddleOCR sometimes splits compound units like "100m3" into two words:
+  // "100" lands in unit col (2) and "m3" bleeds into qty col (3).
+  // Strip the leading unit-like prefix and append it to the unit column.
+  if (numCols >= 4) {
+    for (const row of grid) {
+      for (let ci = 3; ci < Math.min(numCols, 6); ci++) {
+        const cell = row[ci];
+        if (!cell.text) continue;
+        // Match: short prefix starting with a letter (≤6 chars) + space + number
+        // e.g., "m3 0,413" → prefix="m3", number="0,413"
+        const m = cell.text.match(/^([a-zA-Z]\S{0,5})\s+([-+]?\d[\d.,]*)$/);
+        if (m) {
+          // Append stripped prefix to unit column
+          if (numCols > 2 && row[2]) {
+            row[2].text = (row[2].text + m[1]).trim();
+          }
+          cell.text = m[2];
+        }
+      }
+    }
+  }
+
   console.log(`[wordGridExtract] ${pageWords.length} words → ${numRows}r × ${numCols}c (assigned=${assigned} skipped=${skipped}) colLefts=[${colLefts.map(x=>x.toFixed(1)).join(',')}] maxRight=${maxRight.toFixed(1)}`);
   return { grid, numRows, numCols, colLefts, rowTops, maxRight, maxBottom };
 }
