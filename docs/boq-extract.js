@@ -877,6 +877,59 @@ async function reOcrEmptyCells(tableRows, pageCanvases) {
   return fixed;
 }
 
+// Re-OCR empty numeric cells using ONNX recognition directly on cell crops.
+// Skips detection entirely — we already know cell bounds from OpenCV borders.
+// This avoids border-line false positives, hallucinated text, and adjacent cell bleed.
+async function reOcrEmptyCellsOnnx(tableRows, pageCanvases) {
+  // Inset: crop INSIDE cell bounds to avoid border lines (in canvas pixels)
+  const BORDER_INSET_PX = 4;
+  let fixed = 0, checked = 0;
+
+  for (const row of tableRows) {
+    if (!row.cells || row.cells.length < 6) continue;
+    const canvas = pageCanvases[row.page];
+    if (!canvas) continue;
+
+    for (const ci of [3, 4, 5]) {
+      const cell = row.cells[ci];
+      if (!cell._cellBounds) continue;
+      if (cell.value !== '') continue;
+
+      // Same adjacency filter as server version
+      if (ci === 3 && !row.cells[4].value) continue;
+      if (ci === 4 && !row.cells[3].value && !row.cells[5].value) continue;
+      if (ci === 5 && !row.cells[4].value) continue;
+
+      // Crop INSIDE the cell (inset to skip border lines)
+      const { x, x1, y, y1 } = cell._cellBounds;
+      const sx = Math.floor(x  * OCR_SCALE) + BORDER_INSET_PX;
+      const ex = Math.ceil( x1 * OCR_SCALE) - BORDER_INSET_PX;
+      const sy = Math.floor(y  * OCR_SCALE) + BORDER_INSET_PX;
+      const ey = Math.ceil( y1 * OCR_SCALE) - BORDER_INSET_PX;
+      const sw = ex - sx, sh = ey - sy;
+      if (sw < 4 || sh < 4) continue;
+
+      checked++;
+      try {
+        // Run recognition directly — no detection needed
+        const rec = await reOcrCropOnnx(canvas, sx, sy, sw, sh);
+        const newText = (rec.text || '').trim();
+        if (newText && parseVnNumber(newText) !== null) {
+          console.log(`[reOcrEmptyOnnx] col${ci} page=${row.page} "" → "${newText}" (conf=${(rec.confidence*100).toFixed(0)}%)`);
+          cell.value = newText;
+          cell.correctedBy = 'reocr-empty-onnx';
+          cell.confidence = rec.confidence * 100;
+          fixed++;
+        }
+      } catch (e) {
+        console.warn(`[reOcrEmptyOnnx] col${ci} failed: ${e.message}`);
+      }
+    }
+  }
+  log(`  Re-OCR (ONNX): recovered ${fixed} empty cells (checked ${checked})`, fixed > 0 ? 'ok' : '');
+  return fixed;
+}
+
 // Border-based extraction using OpenCV detected cells
 async function borderBasedExtract(ocrWords, borderCells, pageCanvases = {}) {
   console.log(`[borderBasedExtract] Starting with ${ocrWords.length} words and ${borderCells.length} cells`);
@@ -957,9 +1010,14 @@ async function borderBasedExtract(ocrWords, borderCells, pageCanvases = {}) {
   // Cells where parseVnNumber returns null but the value contains digits are
   // garbled OCR (e.g. "066*66"). Crop the word region and re-OCR at 2x zoom.
   console.log(`[reOcrGarbage] gate: ocrServerAvailable=${ocrServerAvailable} pageCanvasCount=${Object.keys(pageCanvases).length}`);
-  if (ocrServerAvailable && Object.keys(pageCanvases).length > 0) {
-    await reOcrGarbageCells(tableRows, pageCanvases);
-    await reOcrEmptyCells(tableRows, pageCanvases);
+  if (Object.keys(pageCanvases).length > 0) {
+    if (ocrServerAvailable) {
+      await reOcrGarbageCells(tableRows, pageCanvases);
+      await reOcrEmptyCells(tableRows, pageCanvases);
+    }
+    if (typeof onnxBackendAvailable !== 'undefined' && onnxBackendAvailable) {
+      await reOcrEmptyCellsOnnx(tableRows, pageCanvases);
+    }
   }
 
   log(`  Total: ${tableRows.length} rows × ${maxCols} columns across ${pages.length} pages`);

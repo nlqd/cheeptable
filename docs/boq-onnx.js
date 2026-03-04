@@ -639,3 +639,15 @@ async function ocrPageWithOnnx(canvas, pageNum) {
   console.log(`[ONNX] Page ${pageNum}: ${words.length} words recognized`);
   return { words, lines: [] };
 }
+
+// ── Crop Re-OCR (for recovering missed small text in narrow cells) ──
+// Skip detection entirely — we already know the cell bounds from OpenCV.
+// Run recognition directly on the cell crop to avoid border-line false positives.
+
+async function reOcrCropOnnx(canvas, sx, sy, sw, sh) {
+  if (sw < 4 || sh < 4) return { text: '', confidence: 0 };
+
+  // Recognize the entire crop region as a single text box
+  const rec = await _recognizeBox(canvas, { x0: sx, y0: sy, x1: sx + sw, y1: sy + sh });
+  return rec;  // { text, confidence }
+}
