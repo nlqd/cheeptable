@@ -23,7 +23,6 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web@1.22.0/dist/ort.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/clipper-lib@6.4.2/clipper.js"></script>
-<script async src="https://docs.opencv.org/4.x/opencv.js" onload="onOpenCvReady();" type="text/javascript"></script>
 <link href="https://unpkg.com/tabulator-tables@6.3.1/dist/css/tabulator_simple.min.css" rel="stylesheet">
 <script src="https://unpkg.com/tabulator-tables@6.3.1/dist/js/tabulator.min.js"></script>
 <script src="vn_syllable_corrector.js"></script>
@@ -174,18 +173,13 @@ let currFlagIdx = -1;
 let processingCancelled = false;
 
 // ── OpenCV.js Initialization ──
+// cv.imread exists before the WASM runtime has started, so it is no readiness signal.
+// This build's cv.then() fires once the runtime is up, or at once if it already is.
 function onOpenCvReady() {
-  if (typeof cv !== 'undefined') {
-    if (typeof cv.imread === 'function') {
-      opencvReady = true;
-      log('OpenCV.js loaded', 'ok');
-    } else {
-      cv['onRuntimeInitialized'] = () => {
-        opencvReady = true;
-        log('OpenCV.js loaded', 'ok');
-      };
-    }
-  }
+  cv.then(() => {
+    opencvReady = true;
+    log('OpenCV.js loaded', 'ok');
+  });
 }
 
 let onnxBackendAvailable = null;
@@ -463,5 +457,11 @@ setupExport();
 log('Ready. Drop a PDF to begin.');
 
 </script>
+<!-- OpenCV 4.13.0, official build: js/bin/opencv.js inside
+     https://github.com/opencv/opencv/releases/download/4.13.0/opencv-4.13.0-docs.zip
+     (opencv.js sha256 63366510248adf3a7eddf3e793dd825404efb7df3749f4d6f8557c7fa4ca8aa0).
+     Self-hosted because docs.opencv.org now answers browsers with a Cloudflare challenge.
+     Placed after the inline script so onOpenCvReady exists when onload fires. -->
+<script async src="opencv.js" onload="onOpenCvReady();"></script>
 </body>
 </html>
