@@ -1,0 +1,5 @@
+{"page": 3, "stt": "101", "field": "desc", "golden": "Bừng chận Þ150", "seen": "Bửng chận Þ150", "confidence": "high", "note": "hỏi not huyền: Bửng"}
+{"page": 3, "stt": "102", "field": "desc", "golden": "Bừng chận Þ100", "seen": "Bửng chận Þ100", "confidence": "high", "note": "hỏi not huyền: Bửng"}
+{"page": 3, "stt": "104", "field": "desc", "golden": "Ống coi hộng ổ khóa D168", "seen": "Ống cơi họng ổ khóa D168", "confidence": "high", "note": "cơi họng"}
+{"page": 3, "stt": "110", "field": "desc", "golden": "Ống nối răng ngoài Þ 27 PVC", "seen": "Ống nối răng ngoài  Þ 27 PVC", "confidence": "low", "note": "double space before Þ on page"}
+{"page": 3, "stt": "128", "field": "desc", "golden": "Tưới nhựa lót tiêu chuẩn 1,0 kg/m2 bằng nhũ tương nhựa", "seen": "Tưới nhựa lót tiêu chuẩn 1,0 kg/m2 bằng nhủ tương nhựa", "confidence": "medium", "note": "hỏi on u: nhủ"}
