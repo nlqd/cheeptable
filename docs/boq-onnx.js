@@ -7,6 +7,10 @@ const ONNX_MODEL_BASE = 'https://huggingface.co/dzngo/vietocr-models/resolve/mai
 const ONNX_MODELS = {
   det:     `${ONNX_MODEL_BASE}/paddleocr/det_v3.onnx`,
   encoder: `${ONNX_MODEL_BASE}/vietocr/encoder_fp16.onnx`,
+  // 30 MB instead of 55 MB. Static int8 (QDQ) with the first conv kept float; on the 473-row contract it matches fp32
+  // (description error 0.065, numbers 0.945 vs 0.947). Dynamic int8 would need ConvInteger, which onnxruntime-web lacks.
+  // Runs on the WASM backend only; WebGPU keeps the fp16 encoder.
+  encoderInt8: `${ONNX_MODEL_BASE}/vietocr/encoder_int8.onnx`,
   decoder: `${ONNX_MODEL_BASE}/vietocr/decoder_fp16.onnx`,
   vocab:   `${ONNX_MODEL_BASE}/vietocr/vocab.txt`,
 };
@@ -15,40 +19,21 @@ const CACHE_NAME = 'boq-onnx-models-v1';
 // VietOCR special tokens
 const SOS = 1, EOS = 2;
 
-// DB post-processing parameters (match PaddleOCR defaults)
+// DB post-processing parameters. PaddleOCR defaults are box 0.6 and side 960; on dense scanned tables that
+// dropped about half of the description lines. Both needed to change: 960 px with box 0.5 or 1280 px with
+// box 0.6 recovered almost nothing (probe: hillclimb/det_probe.js).
 const DB_THRESH = 0.3;
-const DB_BOX_THRESH = 0.6;
+const DB_BOX_THRESH = 0.5;
 const DB_UNCLIP_RATIO = 2.0;
 const DB_MAX_CANDIDATES = 1000;
 const DB_MIN_SIZE = 3;
 
 // Detection preprocessing
-const DET_MAX_SIDE = 960;
+const DET_MAX_SIDE = 1280;
 const DET_MEAN = [0.485, 0.456, 0.406];
 const DET_STD  = [0.229, 0.224, 0.225];
 
-// Regex from ocr_server.py
 const _NUMERIC_RE  = /^[\d\s.,:()\[\]%/=+\-xX*]+$/;
-const _OPERATOR_RE = /[><=]/;
-const _DIAMETER_RE = /(?<![A-Za-z\d])([Pp2b])([1-9]\d{1,3})\b/g;
-const _DIAMETER_CONF_THRESHOLD = 0.975;
-const _TAIL_1 = new Set([
-  'thế','trị','nhau','lại','năm','tháng','nha','thuận','trước',
-  'nghệ','thể','nhất','trận','chính','đội','nam','tế','là',
-  'tc','th','tp','tm','tt','ch','ban','hh','hhh','thuy',
-  'thị','thanh','khác','t','l','m','la','mm',
-]);
-const _TAIL_2 = new Set(['thế trị','thế trước','th tp']);
-const _TAIL_RAW = new Set(['(m','(s','(S','(m2','(m3']);
-const _YEAR_TAIL_RE = /^(?:(?:19|20)\d{2}|19|20)$/;
-const _PHRASE_SUBS = [
-  [/phui mương ống/g, 'phui muông ống'],
-  [/căn khí nén\b/g,  'cần khi nền'],
-  [/đấu nối/g,        'đầu nối'],
-  [/Bửng chận/g,      'Bừng chận'],
-  [/ôtô tự đồ/g,      'ôtô tự đổ'],
-  [/\bUPVC\b/g,        'uPVC'],
-];
 
 // ── State ──
 let _detSession = null;
@@ -78,6 +63,31 @@ async function _loadCached(url) {
   }
 }
 
+// The fp16 models need an adapter with shader-f16. `navigator.gpu` alone is not enough: a machine with
+// WebGPU but no f16 shaders created sessions fine and then decoded nothing but <pad> tokens.
+async function _pickBackend() {
+  try {
+    const adapter = navigator.gpu ? await navigator.gpu.requestAdapter() : null;
+    return adapter && adapter.features.has('shader-f16') ? 'webgpu' : 'wasm';
+  } catch (e) {
+    return 'wasm';
+  }
+}
+
+async function _createEncoder(backend, opts) {
+  if (backend === 'wasm') {
+    try {
+      const resp = await _loadCached(ONNX_MODELS.encoderInt8);
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      return await ort.InferenceSession.create(await resp.arrayBuffer(), opts);
+    } catch (e) {
+      console.warn('[ONNX] int8 encoder unavailable, using fp16:', e);
+    }
+  }
+  const resp = await _loadCached(ONNX_MODELS.encoder);
+  return ort.InferenceSession.create(await resp.arrayBuffer(), opts);
+}
+
 async function initOnnxOCR(progressCb) {
   if (onnxReady || onnxLoading) return onnxReady;
   onnxLoading = true;
@@ -89,24 +99,24 @@ async function initOnnxOCR(progressCb) {
 
     ort.env.wasm.wasmPaths = 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.22.0/dist/';
 
-    const backend = (navigator.gpu) ? 'webgpu' : 'wasm';
+    const backend = await _pickBackend();
     const opts = { executionProviders: [backend, 'wasm'] };
 
-    if (progressCb) progressCb('Loading ONNX models (77 MB first time)...');
+    if (progressCb) progressCb(`Loading ONNX models (${backend === 'wasm' ? '52' : '77'} MB first time)...`);
 
     // Load all models in parallel
-    const [detBuf, encBuf, decBuf, vocabResp] = await Promise.all([
+    const [detBuf, decBuf, vocabResp, enc] = await Promise.all([
       _loadCached(ONNX_MODELS.det).then(r => r.arrayBuffer()),
-      _loadCached(ONNX_MODELS.encoder).then(r => r.arrayBuffer()),
       _loadCached(ONNX_MODELS.decoder).then(r => r.arrayBuffer()),
       _loadCached(ONNX_MODELS.vocab).then(r => r.text()),
+      _createEncoder(backend, opts),
     ]);
 
     if (progressCb) progressCb('Creating ONNX sessions...');
 
-    [_detSession, _encSession, _decSession] = await Promise.all([
+    _encSession = enc;
+    [_detSession, _decSession] = await Promise.all([
       ort.InferenceSession.create(detBuf, opts),
-      ort.InferenceSession.create(encBuf, opts),
       ort.InferenceSession.create(decBuf, opts),
     ]);
 
@@ -419,9 +429,26 @@ async function _detectTextBoxes(canvas) {
 
 // ── VietOCR Recognition ──
 
+// White margin added left and right of every line crop. Detector boxes hug the ink, and VietOCR reads
+// tight crops far worse (measured on the 11-page contract: character error 0.12 -> 0.024 with 10 px).
+const VIETOCR_PAD_PX = 10;
+
 function _preprocessVietOCR(canvas, x0, y0, x1, y1) {
-  const cropW = x1 - x0, cropH = y1 - y0;
-  if (cropW <= 0 || cropH <= 0) return null;
+  const rawW = x1 - x0, cropH = y1 - y0;
+  if (rawW <= 0 || cropH <= 0) return null;
+  const pad = VIETOCR_PAD_PX;
+  const cropW = rawW + 2 * pad;
+
+  // Source: the crop centred on a white canvas, so neighbouring ink and gridlines never enter the margin
+  const padded = document.createElement('canvas');
+  padded.width = cropW;
+  padded.height = cropH;
+  const pctx = padded.getContext('2d');
+  pctx.fillStyle = '#fff';
+  pctx.fillRect(0, 0, cropW, cropH);
+  pctx.drawImage(canvas, x0, y0, rawW, cropH, pad, 0, rawW, cropH);
+  canvas = padded;
+  x0 = 0; y0 = 0;
 
   // Resize to height=32, proportional width, round to mult of 10, clamp [32, 512]
   let newW = Math.round(32 * cropW / cropH);
@@ -537,55 +564,16 @@ async function _recognizeBox(canvas, box) {
 }
 
 // ── Post-processing (mirrors ocr_server.py fixes) ──
-// On BE, PaddleOCR English rec provides an independent word count (pWc) to detect
-// VietOCR hallucinations. On FE we don't have PaddleOCR rec, so we estimate the
-// expected word count from the crop's pixel width.
-// At 200 DPI, Vietnamese runs ~50-70px per word (5-6 chars × ~10-12px).
-const _PX_PER_WORD = 55;
-
-function _postProcess(vText, cropWidthPx, detScore) {
-  const estWc = Math.max(1, Math.round(cropWidthPx / _PX_PER_WORD));
-
-  // Fix 1: word count clipping — cap VietOCR output to estimated + 2 words
-  let vWords = vText.split(/\s+/).filter(Boolean);
-  if (vWords.length > estWc + 3) {
-    vWords = vWords.slice(0, estWc + 2);
-  }
-
-  // Fix 4: tail token stripping — remove known hallucinated trailing words
-  if (vWords.length > estWc) {
-    if (vWords.length >= 2) {
-      const t2 = vWords.slice(-2).join(' ').toLowerCase();
-      if (_TAIL_2.has(t2)) vWords = vWords.slice(0, -2);
-    }
-    if (vWords.length > estWc && vWords.length > 0) {
-      const raw = vWords[vWords.length - 1];
-      const t1 = raw.toLowerCase().replace(/[.,!?()\[\]]/g, '');
-      if (_TAIL_RAW.has(raw) || _TAIL_1.has(t1) || _YEAR_TAIL_RE.test(t1)) {
-        vWords = vWords.slice(0, -1);
-      }
-    }
-  }
-
-  let result = vWords.join(' ');
-
-  // Fix 2: operator fallback — skipped on FE (no independent text source)
-
-  // Fix 3: diameter symbol correction — DISABLED on FE.
-  // Detection score is not a valid proxy for PaddleOCR rec confidence.
-  // detScore is ~0.95-0.99 for all boxes, so the threshold fires on every "2XX" number.
-  // BE uses PaddleOCR per-character rec confidence where Þ glyphs score uniquely low.
-
-  // Fix 5: strip spurious wrapping quotes
+// Post-processing was removed on purpose. It clipped lines to a words-per-pixel estimate, stripped a list of
+// trailing words and rewrote phrases to match the first golden file. Vietnamese words average about 40 px here,
+// not 55, so the clip cut correct lines, and the phrase rewrites turned right readings into the golden file's
+// mistakes. With padded crops the plain VietOCR read is better on both the tuning and the held-out descriptions.
+function _postProcess(vText) {
+  let result = vText;
+  // Strip spurious wrapping quotes
   if (result.length >= 2 && result.startsWith('"') && result.endsWith('"')) {
     result = result.slice(1, -1);
   }
-
-  // Fix 6: phrase-level diacritic corrections
-  for (const [pat, repl] of _PHRASE_SUBS) {
-    result = result.replace(pat, repl);
-  }
-
   return result;
 }
 
@@ -615,7 +603,7 @@ async function ocrPageWithOnnx(canvas, pageNum) {
     const { text: rawText, confidence } = await _recognizeBox(canvas, box);
     if (!rawText.trim() || confidence < 0.65) continue;
 
-    const text = _postProcess(rawText, cropW, box.score);
+    const text = _postProcess(rawText);
     if (!text.trim()) continue;
 
     words.push({

@@ -580,6 +580,11 @@ function reconstructFormulaRows(orphanWords, numCols) {
 // caused by the old 30pt cell margin).
 function wordGridExtract(pageWords, pageCells) {
   if (pageWords.length === 0) return { grid: [], numRows: 0, numCols: 0 };
+  // Words read from a ruled grid (boq-grid.js) already carry their cell, so the geometry guessing below,
+  // including its merge of words that sit close across a column line, would only damage them.
+  if (pageWords.every(w => w.cell) && pageCells.every(c => c.row !== undefined)) {
+    return gridCellsToWordGrid(pageWords, pageCells);
+  }
 
   // ── Column detection ──────────────────────────────────────────────────────
   // Cluster cell left-edge (cell.x) values; gaps > 5pt separate columns.
@@ -735,6 +740,40 @@ function wordGridExtract(pageWords, pageCells) {
   }
 
   console.log(`[wordGridExtract] ${pageWords.length} words → ${numRows}r × ${numCols}c (assigned=${assigned} skipped=${skipped}) colLefts=[${colLefts.map(x=>x.toFixed(1)).join(',')}] maxRight=${maxRight.toFixed(1)}`);
+  return { grid, numRows, numCols, colLefts, rowTops, maxRight, maxBottom };
+}
+
+// Same result shape as the geometry path. Rows and columns are the ruled-grid indices, compacted to 0..n-1.
+function gridCellsToWordGrid(pageWords, pageCells) {
+  const ids = (key) => [...new Set(pageCells.map(c => c[key]))].sort((a, b) => a - b);
+  const rowIds = ids('row'), colIds = ids('col');
+  const numRows = rowIds.length, numCols = colIds.length;
+  const rowAt = new Map(rowIds.map((id, i) => [id, i]));
+  const colAt = new Map(colIds.map((id, i) => [id, i]));
+
+  const colLefts = [], rowTops = [];
+  for (const c of pageCells) {
+    colLefts[colAt.get(c.col)] = c.x;
+    rowTops[rowAt.get(c.row)] = c.y;
+  }
+  const maxRight = pageCells.reduce((m, c) => Math.max(m, c.x + c.width), 0);
+  const maxBottom = pageCells.reduce((m, c) => Math.max(m, c.y + c.height), 0);
+
+  const grid = Array.from({ length: numRows }, () =>
+    Array.from({ length: numCols }, () => ({ words: [], text: '', confidence: 0 })));
+  // words arrive top to bottom, so a wrapped description keeps its line order
+  for (const word of pageWords) {
+    const r = rowAt.get(word.cell.row), c = colAt.get(word.cell.col);
+    if (r !== undefined && c !== undefined) grid[r][c].words.push(word);
+  }
+  for (const row of grid) {
+    for (const cell of row) {
+      if (!cell.words.length) continue;
+      cell.text = cell.words.map(w => w.text).join(' ').trim();
+      cell.confidence = cell.words.reduce((s, w) => s + w.confidence, 0) / cell.words.length;
+    }
+  }
+  console.log(`[gridCellsToWordGrid] ${pageWords.length} words -> ${numRows}r x ${numCols}c`);
   return { grid, numRows, numCols, colLefts, rowTops, maxRight, maxBottom };
 }
 

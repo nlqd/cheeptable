@@ -141,6 +141,8 @@ footer a { color: inherit; }
 <script src="boq-viet.js"></script>
 <script src="boq-ocr.js"></script>
 <script src="boq-onnx.js"></script>
+<script src="boq-grid.js"></script>
+<script src="boq-arith.js"></script>
 <script src="boq-extract.js"></script>
 <script src="boq-ui.js"></script>
 <script src="boq-review.js"></script>
@@ -361,7 +363,7 @@ async function extractPDF(buffer) {
     } else {
       // Image-based page: ONNX OCR
       if (!onnxBackendAvailable) {
-        log('Initializing ONNX models (first time ~77 MB download)...', 'warn');
+        log('Initializing ONNX models (first time ~52-77 MB download)...', 'warn');
         const ok = await initOnnxOCR((msg) => {
           $('progressText').textContent = msg;
         });
@@ -372,15 +374,21 @@ async function extractPDF(buffer) {
       const canvas = await renderPageToCanvas(page, OCR_SCALE);
       pageCanvases[p] = canvas;
 
+      // Ruled tables: read the cells of the drawn grid directly. Anything else: text detector.
       let borderData = { cells: [], lines: { horizontal: [], vertical: [] } };
-      if (opencvReady) {
+      const grid = opencvReady ? await findGrid(canvas) : null;
+      if (!grid && opencvReady) {
         borderData = await detectTableBorders(canvas);
       }
 
       currentOCRPage = p;
 
       try {
-        const ocrResult = await ocrPageWithOnnx(canvas, p);
+        const ocrResult = grid ? await ocrPageWithGrid(canvas, p, grid) : await ocrPageWithOnnx(canvas, p);
+        if (grid) {
+          log('  Page ' + p + ': ruled grid ' + (grid.xs.length - 1) + ' columns x ' + (grid.ys.length - 1) + ' rows', 'ok');
+          borderData = { cells: ocrResult.cells, lines: { horizontal: [], vertical: [] } };
+        }
         ocrPageCount++;
 
         const pageWords = ocrResult.words;
@@ -402,6 +410,8 @@ async function extractPDF(buffer) {
             width: cell.width / OCR_SCALE,
             height: cell.height / OCR_SCALE,
             area: cell.area / (OCR_SCALE * OCR_SCALE),
+            row: cell.row,
+            col: cell.col,
             page: p
           })));
         }
@@ -427,6 +437,8 @@ async function extractPDF(buffer) {
       log('Border detection: ' + allBorderCells.length + ' cells detected', 'ok');
     }
     rows = await ocrTableExtract(allOcrLines, allOcrWords, allBorderCells, pageCanvases);
+    const { fixed } = repairArithmetic(rows);
+    if (fixed > 0) log('Fixed misread numbers in ' + fixed + ' rows (qty x price = total)', 'ok');
   } else if (allLines.length > 20) {
     log('Using LATTICE mode (lines detected)', 'ok');
     rows = await latticeExtract(allTextItems, allLines, numPages);
