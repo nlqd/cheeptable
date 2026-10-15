@@ -1,0 +1,4 @@
+{"page": 8, "stt": "323", "field": "desc", "golden": "Ống uPVC Þ150 (ống mới)", "seen": "Ống uPVC Þ150 (ống mồi)", "confidence": "high", "note": "'mới' vs printed 'mồi'"}
+{"page": 8, "stt": "328", "field": "desc", "golden": "Manchon MJ Þ100 FF", "seen": "Manchon MJ Þ150 FF", "confidence": "high", "note": "Þ100 in golden, page shows Þ150"}
+{"page": 8, "stt": "329", "field": "desc", "golden": "Bừng chận Þ100", "seen": "Bửng chận Þ100", "confidence": "high", "note": "'Bừng' vs 'Bửng' (hỏi)"}
+{"page": 8, "stt": "330", "field": "desc", "golden": "Ống coi hộng ổ khóa D168", "seen": "Ống cơi họng ổ khóa D168", "confidence": "high", "note": "'coi hộng' vs 'cơi họng' (horn, nặng)"}

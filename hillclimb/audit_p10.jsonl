@@ -1,0 +1,7 @@
+{"page": 10, "stt": "417", "field": "desc", "golden": "Đào phui muông ống bằng thủ công Đất cấp II", "seen": "Đào phui mương ống bằng thủ công Đất cấp II", "confidence": "high", "note": "muông vs mương (ư with horn, ng)"}
+{"page": 10, "stt": "432", "field": "desc", "golden": "Ống uPVC Þ150 (ống mới)", "seen": "Ống uPVC Þ150 (ống mồi)", "confidence": "high", "note": "mới vs mồi"}
+{"page": 10, "stt": "439", "field": "desc", "golden": "Bừng chận Þ100", "seen": "Bửng chận Þ100", "confidence": "medium", "note": "tone mark on ư is hỏi (bửng), golden has huyền"}
+{"page": 10, "stt": "440", "field": "desc", "golden": "Bừng chận Þ50", "seen": "Bửng chận Þ50", "confidence": "medium", "note": "tone mark on ư is hỏi (bửng), golden has huyền"}
+{"page": 10, "stt": "442", "field": "desc", "golden": "Ống coi hộng ổ khóa D168", "seen": "Ống cơi họng ổ khóa D168", "confidence": "high", "note": "two errors: coi vs cơi (horn on ơ); hộng vs họng"}
+{"page": 10, "stt": "448", "field": "desc", "golden": "Ống nối răng ngoài Þ 27 PVC", "seen": "Ống nối răng ngoài  Þ 27 PVC", "confidence": "low", "note": "page has a double space before Þ; golden has single space"}
+{"page": 10, "stt": "460", "field": "desc", "golden": "Tưới nhựa lót tiêu chuẩn 1,0 kg/m2 bằng nhũ tương nhựa", "seen": "Tưới nhựa lót tiêu chuẩn 1,0 kg/m2 bằng nhủ tương nhựa", "confidence": "medium", "note": "tone on nhủ appears hỏi (page spelling), golden has ngã (nhũ)"}

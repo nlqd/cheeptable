@@ -1,0 +1,7 @@
+{"page": 1, "stt": "3", "field": "desc", "golden": "Phá dỡ kết cấu mặt đường bê tông, nhựa bằng búa cần khi nền 3m3/ph", "seen": "Phá dỡ kết cấu mặt đường bê tông, nhựa bằng búa căn khí nén 3m3/ph", "confidence": "high", "note": "tone/letters: căn khí nén"}
+{"page": 1, "stt": "4", "field": "desc", "golden": "Đào phui muông ống bằng máy Đất cấp III", "seen": "Đào phui mương ống bằng máy Đất cấp III", "confidence": "high", "note": "mương not muông"}
+{"page": 1, "stt": "5", "field": "desc", "golden": "Đào phui muông ống bằng máy Đất cấp II", "seen": "Đào phui mương ống bằng máy Đất cấp II", "confidence": "high", "note": "mương not muông"}
+{"page": 1, "stt": "6", "field": "desc", "golden": "Đào phui muông ống bằng thủ công Đất cấp III", "seen": "Đào phui mương ống bằng thủ công Đất cấp III", "confidence": "high", "note": "mương not muông"}
+{"page": 1, "stt": "7", "field": "desc", "golden": "Đào phui muông ống bằng thủ công Đất cấp II", "seen": "Đào phui mương ống bằng thủ công Đất cấp II", "confidence": "high", "note": "mương not muông"}
+{"page": 1, "stt": "39", "field": "desc", "golden": "Bừng chận Þ150", "seen": "Bửng chận Þ150", "confidence": "high", "note": "hỏi not huyền: Bửng"}
+{"page": 1, "stt": "41", "field": "desc", "golden": "Ống coi hộng ổ khóa D168", "seen": "Ống cơi họng ổ khóa D168", "confidence": "high", "note": "horn on o, nặng not ngã: cơi họng"}
