@@ -56,14 +56,19 @@ if MINCONF:
     js('window.__minConf = ' + MINCONF)
 if os.environ.get("WASM"):
     js("Object.defineProperty(navigator, 'gpu', {get: () => undefined}); String(navigator.gpu)")
-# docs.opencv.org answers scripted browsers with a Cloudflare challenge page, so load a pinned local copy instead.
-js("new Promise(res => { const s = document.createElement('script'); s.src = '/hillclimb/vendor/opencv.js'; "
-   "s.onload = () => { onOpenCvReady(); res(1); }; document.head.appendChild(s); })")
-for _ in range(60):
+# The page self-hosts OpenCV.js. Wait for it; only if it never loads, inject the pinned copy from vendor/.
+for _ in range(30):
     if js("opencvReady") == "true":
         break
     time.sleep(2)
-print("grid module:", js("typeof findGrid"), end=" ")
+else:
+    print("page's own OpenCV did not load; injecting vendor copy", flush=True)
+    js("new Promise(res => { const s = document.createElement('script'); s.src = '/hillclimb/vendor/opencv.js'; "
+       "s.onload = () => { onOpenCvReady(); res(1); }; document.head.appendChild(s); })")
+    for _ in range(60):
+        if js("opencvReady") == "true":
+            break
+        time.sleep(2)
 print("opencv ready:", js("opencvReady"), "| grid module:", js("typeof findGrid"), "| pad:", js("typeof VIETOCR_PAD_PX"), flush=True)
 t0 = time.time()
 print(rodney("file", "#fileInput", PDF), flush=True)
