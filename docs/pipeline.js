@@ -94,6 +94,7 @@ CT.runJob = async function (file) {
   const allTextItems = [], allLines = [];
   const allOcrWords = [], allOcrLines = [], allBorderCells = [];
   const pageCanvases = {};
+  let poolReady = null;
   let ocrPageCount = 0;
 
   for (let p = 1; p <= numPages; p++) {
@@ -124,7 +125,7 @@ CT.runJob = async function (file) {
         CT.emit('models:ready', { gpu: _encoderOnGpu });
       }
       await cvReady;
-      await startOcrPool();
+      if (!poolReady) poolReady = startOcrPool();   // workers start while the page is rendered and its grid is found
 
       CT.emit('page:status', { page: p, status: 'render' });
       await CT.frame();
@@ -145,6 +146,7 @@ CT.runJob = async function (file) {
 
       currentOCRPage = p;
       try {
+        await poolReady;                         // reads must not start on the page thread by accident
         CT.emit('page:status', { page: p, status: 'read' });
         const ocrResult = grid ? await ocrPageWithGrid(canvas, p, grid) : await ocrPageWithOnnx(canvas, p);
         if (grid) {

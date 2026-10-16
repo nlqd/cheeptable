@@ -26,7 +26,7 @@ rodney("open", url)
 rodney("waitload")
 time.sleep(1)
 rodney("js", "(window.alert = () => {}, window.__errors = [], window.addEventListener('error', e => window.__errors.push(String(e.message))), window.addEventListener('unhandledrejection', e => window.__errors.push(String(e.reason))), 1)")
-rodney("js", "(CT.on('job:done', d => { window.__rows = d.rows; }), 1)")
+rodney("js", "(CT.on('job:done', d => { window.__rows = d.rows; }), window.__ev = [], CT.emit = ((orig) => (t, d) => { window.__ev.push([t, performance.now()]); return orig(t, d); })(CT.emit), 1)")
 t0 = time.time()
 rodney("file", "#fileInput", pdf)
 shot_at = [3, 12, 25]
@@ -47,5 +47,16 @@ if shots:
     rodney("screenshot", shots + "-result.png")
 rows = rodney("js", "JSON.stringify(window.__rows)")
 open(out, "w").write(rows)
+ev = json.loads(rodney("js", "JSON.stringify(window.__ev)"))
+if ev:
+    t0 = next((t for n, t in ev if n == 'job:begin'), ev[0][1])
+    first = lambda name: next((round(t - t0) for n, t in ev if n == name), None)
+    last = lambda name: max((round(t - t0) for n, t in ev if n == name), default=None)
+    print("timeline ms after the file was chosen: engine loaded %s | models ready %s | first page image %s | first read %s | last read %s | build %s | done %s" % (
+        first('job:start'), first('models:ready'), first('page:render'), first('read'), last('read'), first('build:start'), first('job:done')))
+    stamps = sorted(t for n, t in ev if n not in ('lang', 'mode', 'stage'))
+    gaps = sorted(((b - a, a) for a, b in zip(stamps, stamps[1:])), reverse=True)[:4]
+    names = lambda at: [n for n, t in ev if abs(t - at) < 1][:1]
+    print("longest silences between engine events (ms): %s" % [(round(g), names(at)[0] if names(at) else '?', round(at - t0)) for g, at in gaps])
 info = rodney("js", "JSON.stringify({rendered: document.querySelectorAll('table.grid tbody tr').length, title: document.getElementById('resTitle') && document.getElementById('resTitle').textContent, counter: document.querySelector('.rcount') && document.querySelector('.rcount').textContent, errors: window.__errors})")
 print("done in %.0f s | %s" % (elapsed, info))

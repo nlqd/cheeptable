@@ -1,0 +1,26 @@
+{
+ "label": "ux1",
+ "url": "http://localhost:8080/docs/index.html",
+ "runs": 3,
+ "fcp": 20,
+ "lcp": 20,
+ "dcl": 6,
+ "load": 7,
+ "cls": 0,
+ "longTaskMs": 0,
+ "requests": 3,
+ "blockingScripts": 0,
+ "inlineScriptBytes": 1179,
+ "bytesAtLoad": 9534,
+ "axeEmpty": [],
+ "job": {
+  "jobMs": 30922,
+  "updates": 821,
+  "firstUpdateMs": 8,
+  "maxGapMs": 843,
+  "windowsWithUpdate": 0.94,
+  "updatesPerSec": 26.6,
+  "finished": true
+ },
+ "axeResult": []
+}

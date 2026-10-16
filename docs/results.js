@@ -15,7 +15,7 @@ CT.addStrings({
   fixedSeq: 'Đã sửa {n} số thứ tự nhờ quy luật tăng dần.', log: 'Nhật ký xử lý (cho hỗ trợ kỹ thuật)',
   sheetMain: 'Bảng đã đọc', sheetReview: 'Cần kiểm tra', colRow: 'Hàng', colReason: 'Lý do',
   step3: 'Kiểm tra', step4: 'Tải Excel', step1: 'Chọn tệp', step2: 'Nhận dạng', showPage: 'Xem trang gốc', hidePage: 'Ẩn trang gốc',
-  fit: 'Vừa khung', zoomIn: 'Phóng to trang gốc', zoomOut: 'Thu nhỏ trang gốc',
+  pageScroll: 'Ảnh trang gốc, có thể cuộn', fit: 'Vừa khung', zoomIn: 'Phóng to trang gốc', zoomOut: 'Thu nhỏ trang gốc',
 }, {
   resTitle: 'Read {rows} rows from {pages} pages', resNone: 'No table was found in this file',
   noneHelp: 'Try a clearer image (at least 150 dpi, shot straight on, well lit) or a page that has a table. Badly tilted or blurred scans may not be readable.',
@@ -29,7 +29,7 @@ CT.addStrings({
   fixedSeq: 'Fixed {n} row numbers using the counting-up rule.', log: 'Processing log (for support)',
   sheetMain: 'Extracted table', sheetReview: 'To check', colRow: 'Row', colReason: 'Reason',
   step3: 'Review', step4: 'Download Excel', step1: 'Choose file', step2: 'Recognise', showPage: 'Show source page', hidePage: 'Hide source page',
-  fit: 'Fit', zoomIn: 'Zoom in on the source page', zoomOut: 'Zoom out of the source page',
+  pageScroll: 'Source page image, scrollable', fit: 'Fit', zoomIn: 'Zoom in on the source page', zoomOut: 'Zoom out of the source page',
 });
 
 (() => {
@@ -98,7 +98,8 @@ CT.addStrings({
 
     // table (+ page pane in side-by-side mode)
     const split = el('div', 'split');
-    const pane = el('aside', 'pane'); pane.id = 'pagePane'; pane.hidden = CT.mode !== 'workbench';
+    const pane = el('div', 'pane'); pane.id = 'pagePane'; pane.hidden = CT.mode !== 'workbench';
+    pane.setAttribute('role', 'region'); pane.setAttribute('aria-label', CT.t('showPage'));
     const wrap = el('div', 'gridwrap'); wrap.tabIndex = 0; wrap.setAttribute('role', 'region'); wrap.setAttribute('aria-label', CT.t('tableLabel'));
     wrap.append(buildTable());
     split.append(pane, wrap);

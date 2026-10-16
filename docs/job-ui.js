@@ -9,7 +9,7 @@ CT.addStrings({
   stSessions: 'Đang khởi động mô hình…', stOpen: 'Đang mở tệp…',
   stRender: 'Trang {p}/{n}: đang dựng ảnh trang', stGrid: 'Trang {p}/{n}: đang tìm khung bảng', stRead: 'Trang {p}/{n}: đã đọc {d}/{t} ô',
   stText: 'Trang {p}/{n}: lấy chữ có sẵn trong PDF', stBuild: 'Đang dựng bảng và kiểm tra số liệu…',
-  pagesLbl: 'Trang {p}/{n}', cellsLbl: '{d}/{t} ô', elapsed: 'Đã chạy {t}', eta: 'còn khoảng {t}', etaWait: 'đang ước lượng thời gian…',
+  pagesLbl: 'Trang {p}/{n}', cellsLbl: '{d}/{t} ô', elapsed: 'Đã chạy {t}', eta: 'còn khoảng {t}', etaWait: 'đang ước lượng thời gian…', dlRate: '{r} MB/giây',
   secs: '{n} giây', mins: '{m} phút {s} giây', minsOnly: '{m} phút',
   pgWait: 'chờ', pgRender: 'dựng ảnh', pgGrid: 'tìm khung', pgRead: 'đang đọc', pgDone: 'xong', pgText: 'chữ có sẵn', pgError: 'lỗi',
   cancel: 'Hủy', cancelled: 'Đã hủy. Bạn có thể chọn tệp khác.', again: 'Chọn tệp khác',
@@ -22,7 +22,7 @@ CT.addStrings({
   stSessions: 'Starting the models…', stOpen: 'Opening the file…',
   stRender: 'Page {p}/{n}: rendering the page', stGrid: 'Page {p}/{n}: finding the table frame', stRead: 'Page {p}/{n}: read {d}/{t} cells',
   stText: 'Page {p}/{n}: taking the text already in the PDF', stBuild: 'Building the table and checking the numbers…',
-  pagesLbl: 'Page {p}/{n}', cellsLbl: '{d}/{t} cells', elapsed: 'Running {t}', eta: 'about {t} left', etaWait: 'estimating the time left…',
+  pagesLbl: 'Page {p}/{n}', cellsLbl: '{d}/{t} cells', elapsed: 'Running {t}', eta: 'about {t} left', etaWait: 'estimating the time left…', dlRate: '{r} MB/s',
   secs: '{n} s', mins: '{m} min {s} s', minsOnly: '{m} min',
   pgWait: 'waiting', pgRender: 'rendering', pgGrid: 'finding frame', pgRead: 'reading', pgDone: 'done', pgText: 'embedded text', pgError: 'error',
   cancel: 'Cancel', cancelled: 'Cancelled. You can choose another file.', again: 'Choose another file',
@@ -164,6 +164,8 @@ CT.addStrings({
     const now = performance.now();
     const pct = Math.round(overall() * 100);
     ui.barFill.style.width = pct + '%';
+    const busy = S.stage !== 'done' && (S.stage === 'build' || S.stage === 'open' || [...S.pages.values()].some(i => i.status === 'render' || i.status === 'grid'));
+    if (busy) ui.bar.setAttribute('data-busy', ''); else ui.bar.removeAttribute('data-busy');
     ui.bar.setAttribute('aria-valuenow', String(pct));
     ui.status.textContent = statusText();
     const doneCells = [...S.pages.values()].reduce((s, i) => s + i.done, 0), allCells = [...S.pages.values()].reduce((s, i) => s + i.total, 0);
@@ -172,6 +174,12 @@ CT.addStrings({
     ui.mElapsed.textContent = CT.t('elapsed', { t: fmt(now - S.t0) });
     const e = eta(now);
     ui.mEta.textContent = S.stage === 'read' || S.stage === 'pages' ? (e == null ? CT.t('etaWait') : CT.t('eta', { t: fmt(e) })) : '';
+    if (S.stage === 'models' && S.dl && S.dl.length > 3) {                 // download: rate over the last 3 s and time left
+      const [t1, b1] = S.dl[0], [t2, b2] = S.dl[S.dl.length - 1];
+      let total = 0; S.models.forEach(m => { total += m.total; });
+      const rate = (b2 - b1) / Math.max(1, t2 - t1) * 1000;
+      if (rate > 1000 && total > b2) ui.mEta.textContent = CT.t('dlRate', { r: mb(rate) }) + ' · ' + CT.t('eta', { t: fmt((total - b2) / rate * 1000) });
+    }
 
     // download of the models
     if (S.stage === 'models' && S.models.size && !S.modelsCached) {
@@ -228,6 +236,9 @@ CT.addStrings({
     if (e.cached) { S.modelsCached = true; } else {
       const m = S.models.get(e.url) || { loaded: 0, total: e.total };
       m.loaded = e.loaded; m.total = e.total; S.models.set(e.url, m);
+      const now = performance.now(), got = [...S.models.values()].reduce((s, x) => s + x.loaded, 0);
+      (S.dl = S.dl || []).push([now, got]);
+      S.dl = S.dl.filter(([t]) => now - t < 3000);
     }
     schedule();
   });

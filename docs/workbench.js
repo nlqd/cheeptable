@@ -93,7 +93,7 @@ CT.workbench = (() => {
       const setZoom = (z) => { zoom = Math.max(1, Math.min(4, z)); CT.pref.set('zoom', String(zoom)); stack.style.width = (zoom * 100) + '%'; if (selectedBox) scrollToBox(selectedBox); };
       zin.addEventListener('click', () => setZoom(zoom + 0.5)); zout.addEventListener('click', () => setZoom(zoom - 0.5)); zfit.addEventListener('click', () => setZoom(1));
       bar.append(label, zout, zin, zfit);
-      imgWrap = el('div', 'imgwrap'); imgWrap.tabIndex = 0; imgWrap.setAttribute('role', 'region'); imgWrap.setAttribute('aria-label', CT.t('showPage'));
+      imgWrap = el('div', 'imgwrap'); imgWrap.tabIndex = 0; imgWrap.setAttribute('role', 'region'); imgWrap.setAttribute('aria-label', CT.t('pageScroll'));
       const stack = el('div', 'stack');
       img = el('img'); img.alt = ''; img.decoding = 'async';
       flags = el('div', 'flags'); hl = el('div', 'hl'); hl.hidden = true;
