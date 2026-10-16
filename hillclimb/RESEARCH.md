@@ -88,7 +88,7 @@ Each step names the hypothesis and the number that decides it.
 3. **Contrast and blur normalisation before grid detection.** Hypothesis: the contrast x0.3 and blur sigma 2 collapses disappear when the adaptive threshold is set from image statistics (or CLAHE is applied first). Metric: the same sweep. Cost: half a day.
 4. **Digit robustness.** Hypothesis: most of the 6-20 point number loss under mild degradation is recoverable by re-reading only low-confidence numeric cells with shifted/padded crops and voting, and by the arithmetic repair. Measure first: digit confusion matrix, calibration (error rate by confidence decile, AUROC), and what share of lost rows the repair already recovers under each degradation. Cost: 1-2 days.
 5. **Borderless tables, measured on a benchmark we can make today.** Erase the ruling lines from our own pages (ground truth unchanged) to get borderless twins of every test page. Compare, on rows found and cell exactness: (a) whitespace-valley column and row separators from the projection code we already have, accepted or rejected by the invariants; (b) SLANet_plus (6.9 MB ONNX) as a structure proposer filtered by the same invariants. Only add a model if (a) loses clearly. Cost: 2-4 days.
-6. **Glyph coverage and fine-tuning of the recogniser.** Facts: Þ is the only out-of-vocabulary character and carries 28% of error; tone marks carry 18%. Options in order of cost: (a) a switchable output mapping for the diameter sign (cheap, document-specific, needs your decision); (b) fine-tune VietOCR with an extended vocabulary on synthetic lines (TextRecognitionDataGenerator or SynthTIGER, fonts that contain Þ, plus augmentation matching section 2) mixed with real crops; a 16 GB local GPU is enough. Hypothesis: CER 0.029 -> 0.02 or lower on a real held-out set. Risk: no published Vietnamese synthetic-to-real transfer evidence, so the held-out real set from step 1 is what decides. Cost: 3-5 days.
+6. **Glyph coverage and fine-tuning of the recogniser.** Facts: Þ is the only out-of-vocabulary character and carries 28% of error; tone marks carry 18%. Options in order of cost: (a) ~~a switchable output mapping for the diameter sign~~ (declined by the owner); (b) fine-tune VietOCR with an extended vocabulary on synthetic lines (TextRecognitionDataGenerator or SynthTIGER, fonts that contain Þ, plus augmentation matching section 2) mixed with real crops; a 16 GB local GPU is enough. Hypothesis: CER 0.029 -> 0.02 or lower on a real held-out set. Risk: no published Vietnamese synthetic-to-real transfer evidence, so the held-out real set from step 1 is what decides. Cost: 3-5 days.
 7. **Syllable-lexicon rescoring.** Measure the ceiling first: what share of tone-mark errors produce a string that is not a valid Vietnamese syllable (needs a syllable list, cheap). If under half, skip. If over half, rescore beam candidates against the lexicon. Evidence is handwriting only. Cost: 1 day to measure, 1-2 days to build.
 8. **Device and browser matrix.** Measure latency, memory and correctness on Safari 26, Firefox 141+, an Android phone and a machine without WebGPU. Hypothesis: the fp32-compute GPU encoder works wherever an adapter exists and the CPU path covers the rest. Check per-op profile with `ort.env.webgpu.profiling`. Cost: 1 day.
 9. **Layout analysis for multi-column pages** (DocLayout-YOLO, 75 MB). Lowest priority: it pushes the download over budget and no ruled-table failure comes from it. Revisit when benchmark documents show multi-column text.
@@ -96,9 +96,31 @@ Each step names the hypothesis and the number that decides it.
 
 Not recommended: any vision-language model in the browser (none fits, and the one that does scores below the current recogniser on Vietnamese); more workers or more quantisation for speed (the run is already 1-2 minutes).
 
+## 7. Public-document benchmark (measured, added after the first version)
+
+Corpus: 20 public Vietnamese PDFs sourced from the web (`benchmark/manifest.json`; the PDFs themselves are not committed): 12 born-digital (financial statements with borderless tables, statistical yearbooks, official gazette text, tender forms, a draft regulation) and 8 scanned (copier scans of financial statements, an investment report, a regulation, sample invoices). Gaps: no bill of quantities, no photographed page, no two-column text. Two hosts needed `curl -k` (broken certificate chains); the files are only opened with poppler and pdfium.
+
+**Recogniser on generic printed text** (`line_bench.py`, 1,052 lines from the 12 born-digital documents, answer key = the PDF text layer, lines built from character boxes and split at cell-sized gaps; document-level bootstrap):
+
+| condition | CER | 95% CI over documents | space-free CER | exact lines |
+|---|---|---|---|---|
+| clean render (200 dpi) | 0.0157 | 0.0109 - 0.0211 | 0.0106 | 0.70 |
+| scan-like (0.6 deg, blur, noise, JPEG q40) | 0.0131 | 0.0090 - 0.0177 | 0.0083 | 0.75 |
+| half resolution | 0.0166 | 0.0115 - 0.0226 | 0.0117 | 0.72 |
+| rough (1.5 deg, blur 1.2, noise 15, JPEG q30) | 0.0360 | 0.0252 - 0.0480 | 0.0344 | 0.61 |
+
+- Line reading on generic printed text is about 1.5% CER, already good. It is not where the generality risk is.
+- Part of the remaining 1.5% is reference noise, not recogniser error: a legacy font encodes `Mục lục` as `Môc lôc`, one PDF has no space characters (`Chiphí`), and small-caps headings differ in case. Treat the figures as upper bounds.
+- Benchmark pitfalls found while building it (each inflated the error until fixed): fill-in dots `.....`; PDF text rectangles that cut words in half; missing space characters; table rows or label-plus-text with wide gaps counted as one line. The reference extraction now uses character boxes, inferred spaces and gap splitting.
+- Scan-like degradation scored no worse than clean (blur helps thin serif fonts at 200 dpi); the difference is inside the interval.
+
+**Real scans** (`scan_survey.py`, 24 pages from the 8 scanned documents): estimated skew was 0 to 0.4 degrees on most pages, -0.71 degrees on one copier scan, where the ruled-grid finder lost every row (`5x0`), which is the half-degree cliff from section 2. Many financial-statement scan pages have **no ruled grid at all** (`0x2`, `0x3`, `0x8`): those pages take the text-detector path. Borderless tables are therefore the largest coverage gap, ahead of skew.
+
+Revised order of work: (1) benchmark with truth for borderless tables (born-digital twins of these financial statements, table cells from the text layer), (2) borderless separator detector + invariants, (3) deskew, (4) contrast/blur normalisation, (5) digit robustness, (6) fine-tuning.
+
 ## 6. Decisions that need the owner
-- Þ mapping option: on by default, off by default, or skipped in favour of fine-tuning (step 6).
-- Which real documents can go into the benchmark (step 1 depends on your supplier documents, including any with skew, photos or no ruling lines).
+- Þ mapping option: **declined by the owner (2026-10-16)**; the diameter sign is left to fine-tuning (step 6).
+- Which real documents can go into the benchmark: the owner has none to share and asked for public ones from the web (sourced into `benchmark/raw/`, not committed).
 - Whether review-time (step 10) or accuracy is the target metric for the next stage.
 
 ## Sources (reported findings)

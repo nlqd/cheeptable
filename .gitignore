@@ -87,3 +87,7 @@ vn_construction_dict.js
 # OS files
 Thumbs.db
 .DS_Store
+
+# benchmark corpus: third-party PDFs and a local virtualenv
+benchmark/raw/
+benchmark/.venv/
