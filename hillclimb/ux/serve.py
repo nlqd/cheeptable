@@ -16,8 +16,8 @@ class H(SimpleHTTPRequestHandler):
         super().__init__(*a, directory=ROOT, **k)
 
     def flaky(self, rel):
-        path = os.path.join(ROOT, rel)
-        if not os.path.isfile(path):
+        path = os.path.realpath(os.path.join(ROOT, rel))
+        if not path.startswith(ROOT + os.sep) or not os.path.isfile(path):
             self.send_error(404); return
         size = os.path.getsize(path)
         start = 0
@@ -30,7 +30,6 @@ class H(SimpleHTTPRequestHandler):
         self.send_response(206 if start else 200)
         self.send_header("Content-Type", "application/octet-stream")
         self.send_header("Content-Length", str(size - start))
-        self.send_header("Access-Control-Allow-Origin", "*")
         if start:
             self.send_header("Content-Range", "bytes %d-%d/%d" % (start, size - 1, size))
         self.end_headers()
@@ -57,7 +56,7 @@ class H(SimpleHTTPRequestHandler):
                 if "slow" in q: FLAKY["slow"] = int(q["slow"])
                 if q.get("reset"): FLAKY["count"].clear(); FLAKY["sent"].clear()
                 out = json.dumps({"cut": FLAKY["cut"], "times": FLAKY["times"], "requests": FLAKY["count"], "sent": FLAKY["sent"]})
-            self.send_response(200); self.send_header("Content-Type", "application/json"); self.send_header("Access-Control-Allow-Origin", "*")
+            self.send_response(200); self.send_header("Content-Type", "application/json")
             self.end_headers(); self.wfile.write(out.encode()); return
         if self.path.startswith("/flaky/"):
             self.flaky(self.path.split("?", 1)[0][len("/flaky/"):]); return
