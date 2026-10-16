@@ -22,7 +22,9 @@ CT.t = (key, params) => {
   return params ? s.replace(/\{(\w+)\}/g, (_, k) => params[k] ?? '') : s;
 };
 CT.addStrings({
-  title: 'CheepTable — Chuyển bảng PDF tiếng Việt sang Excel',
+  title: 'CheepTable — OCR tiếng Việt miễn phí, không quảng cáo',
+  tagline: 'OCR tiếng Việt miễn phí, không quảng cáo: chuyển bảng trong PDF và ảnh sang Excel, ngay trong trình duyệt.',
+  badgeFree: 'Miễn phí', badgeNoAds: 'Không quảng cáo', badgeNoSignup: 'Không cần đăng ký', badgeLocal: 'Chạy trong trình duyệt', footerFree: 'Miễn phí, không quảng cáo.',
   modeSimple: 'Đơn giản', modeGuided: 'Từng bước', modeWorkbench: 'Đối chiếu',
   modeSimpleHint: 'Chọn tệp, nhận bảng, tải Excel', modeGuidedHint: 'Bốn bước, có tiến độ chi tiết từng trang',
   modeWorkbenchHint: 'Trang gốc bên cạnh bảng, bấm ô để xem đúng chỗ',
@@ -36,7 +38,9 @@ CT.addStrings({
   loadingEngine: 'Đang nạp bộ xử lý…',
   skip: 'Bỏ qua đến nội dung chính',
 }, {
-  title: 'CheepTable — Vietnamese PDF tables to Excel',
+  title: 'CheepTable — Free, ad-free Vietnamese OCR',
+  tagline: 'Free, ad-free Vietnamese OCR: turn tables in PDFs and images into Excel, right in your browser.',
+  badgeFree: 'Free', badgeNoAds: 'No ads', badgeNoSignup: 'No sign-up', badgeLocal: 'Runs in your browser', footerFree: 'Free, no ads.',
   modeSimple: 'Simple', modeGuided: 'Guided', modeWorkbench: 'Side by side',
   modeSimpleHint: 'Pick a file, get the table, download Excel', modeGuidedHint: 'Four steps with detailed per-page progress',
   modeWorkbenchHint: 'Source page beside the table; click a cell to see it in place',
