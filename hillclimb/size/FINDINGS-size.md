@@ -73,7 +73,7 @@ The student is more confident (median description confidence 93.5 against 92.5),
 - No real phone, Safari or Firefox; externalData is only exercised in Chrome. Memory per worker was not measured (estimated 70 to 80 MB against about 250 MB before).
 - A model trained on teacher labels inherits the teacher's mistakes; unseen fonts and handwriting are untested. Contract numbers are the held-out result; benchmark lines share documents with the training pages.
 - Steps could be coded in 8 bits and the two sinusoid tables (0.4 MB) regenerated in the page: about 0.5 MB more.
-- Int2 attention (`x5`) was tried last; see the run log.
+- Int2 attention as well (`x5`): 7.6 MB, contract CER 0.0314, agree_err 0.0140. Not adopted: it saves 0.6 MB for about 0.001 of CER.
 
 ## Reproduce
 

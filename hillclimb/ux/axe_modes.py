@@ -28,7 +28,8 @@ def post(js):
 
 def load(mode, lang):
     rodney("open", "about:blank"); rodney("open", url); rodney("waitload")
-    rodney("js", "(localStorage.setItem('ct.mode', '%s'), localStorage.setItem('ct.lang', '%s'), 1)" % (mode, lang))
+    models = __import__("os").environ.get("CT_MODELS")      # a copy of the models to test instead of the hosted ones
+    rodney("js", "(localStorage.setItem('ct.mode', '%s'), localStorage.setItem('ct.lang', '%s'), %s 1)" % (mode, lang, ("localStorage.setItem('ct.models', '%s')," % models) if models else ""))
     rodney("open", url); rodney("waitload"); time.sleep(0.8)
 
 
