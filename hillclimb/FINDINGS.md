@@ -84,7 +84,11 @@ Options measured:
 - fp32 decoder instead of fp16: 23% faster, identical text, but 39 MB instead of 20 MB. int8 decoder: 36% faster, but 2 of 4 lines changed text. Not adopted.
 - WASM threads (needs COOP/COEP; `coi_server.py` served them locally): 4 threads 2.2x, 8 threads 2.7x on a whole read, mostly from the encoder; the decoder barely scales. Not adopted: GitHub Pages cannot set the headers and Safari lacks `credentialless`.
 - Worker pool (adopted): every cell read is independent, so single-threaded workers read in parallel (`boq-worker.js`, `boq-pool.js`, shared `boq-decode.js`). Two pages: 1 worker 330 s, 2 workers 165 s, 4 workers 90 s, 8 workers 60 s. Full contract: 8 workers 270 s, 6 workers 330 s, against 1737 s single. Output is cell-for-cell identical to the single-threaded run (571 rows). Each worker costs about 250 MB (page 1.4 GB, 8 workers 3.4 GB), so the default is min(6, cores / 2), started when a scanned page needs OCR and stopped before table building.
-Not tried: a decoder with a key/value cache (removes the quadratic growth, needs a model re-export), batching several lines in one decode.
+Profile of one page after the pool (307 reads, 176 worker-seconds): encoder 46%, decoder 54%; the 251 short reads (numbers, units, row numbers) were 44% of the time.
+- Encoder variants on single-thread WASM at widths 110/220/500: int8 78/149/337 ms, fp32 129/261/602, fp16 152/275/619. int8 is already the fastest.
+- int8 decoder: full contract 18% faster but description exact 0.457 -> 0.364 and held-out error 0.026 -> 0.068. Rejected.
+- fp16 weights with fp32 compute (`fp16_storage.py`: fp16 initializer + Cast, folded when the session loads): 19% faster than the hosted fp16 decoder, bit-identical to fp32, same 20 MB.
+- Cached decoder (`export_decoder_kv.py`, adopted): the original recomputes the cross-attention projection of the whole encoder output and every earlier token at each step (about 14 ms fixed plus 0.4 ms per token). Two graphs: one computes the cross keys/values once per line, one advances a single token with cached self-attention keys/values. Checked against the original decoder (max logit difference 8.7e-05 over 25 steps). One page: decoder time 95 s -> 8 s, worker time 176 s -> 86 s. Full contract: 330 s -> 180 s, 571 rows cell-for-cell identical. The encoder is now 91% of the remaining time.
 
 ## Not measured
 - Borderless tables: the grid path returns nothing there and the detector path runs as before; only the contract and the synthetic document (both ruled) were tested.

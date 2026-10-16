@@ -46,7 +46,7 @@ class OcrPool {
     if (!entry) return;
     this.pending.delete(msg.id);
     this.idle.push(worker);
-    if (msg.type === 'result') entry.job.resolve({ text: msg.text, confidence: msg.confidence });
+    if (msg.type === 'result') entry.job.resolve({ text: msg.text, confidence: msg.confidence, ms: msg.ms });
     else entry.job.reject(new Error(msg.message));
     this._dispatch();
   }
