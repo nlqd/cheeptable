@@ -143,6 +143,7 @@ footer a { color: inherit; }
 <script src="boq-onnx.js"></script>
 <script src="boq-grid.js"></script>
 <script src="boq-arith.js"></script>
+<script src="boq-sequence.js"></script>
 <script src="boq-extract.js"></script>
 <script src="boq-ui.js"></script>
 <script src="boq-review.js"></script>
@@ -437,6 +438,8 @@ async function extractPDF(buffer) {
       log('Border detection: ' + allBorderCells.length + ' cells detected', 'ok');
     }
     rows = await ocrTableExtract(allOcrLines, allOcrWords, allBorderCells, pageCanvases);
+    const seq = repairNumbering(rows).fixed;
+    if (seq > 0) log('Fixed ' + seq + ' misread row numbers (they count up by one)', 'ok');
     const { fixed } = repairArithmetic(rows);
     if (fixed > 0) log('Fixed misread numbers in ' + fixed + ' rows (qty x price = total)', 'ok');
   } else if (allLines.length > 20) {

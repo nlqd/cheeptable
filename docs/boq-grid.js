@@ -49,6 +49,22 @@ function gridTextBands(rowInk, minGap, minH) {
   return bands.filter(([a, b]) => b - a >= minH);
 }
 
+// Column lines from the per-column vertical-line mass (pixels of vertical ruling in each x). A real table line is
+// about as strong as the strongest one; letter strokes are weak. The page-edge shadow is ignored when setting the
+// scale. (A fixed pixel threshold gave 14 "columns" on a short table.)
+function gridPickColumns(mass, f, rel = 0.4) {
+  const w = mass.length;
+  const lo = Math.floor(0.05 * w), hi = Math.floor(0.96 * w);
+  let peak = 0;
+  for (let x = lo; x < hi; x++) peak = Math.max(peak, mass[x]);
+  const hits = [];
+  for (let x = lo; x < hi; x++) if (mass[x] > Math.max(255 * 25 * f, rel * peak)) hits.push(x);
+  return gridClusters(hits, 10 * f);
+}
+
+// A ruled-line fragment left in a cell: ink that spans the whole cell height but is narrow. Real text never fills it.
+const gridIsRuleFragment = (bandH, cellH, inkW) => bandH >= 0.9 * cellH && inkW < 0.5 * bandH;
+
 // Cell rectangles between consecutive ruled lines, inset so the lines themselves stay out of the crop.
 function gridCells(xs, ys, f) {
   const inL = Math.round(3 * f), inR = Math.round(2 * f);
@@ -88,12 +104,10 @@ async function findGrid(canvas) {
     cv.reduce(hor, rowSum, 1, cv.REDUCE_SUM, cv.CV_32S);
     cv.reduce(ver, colSum, 0, cv.REDUCE_SUM, cv.CV_32S);
 
-    const yHits = [], xHits = [];
+    const yHits = [];
     for (let y = 0; y < h; y++) if (rowSum.data32S[y] > 255 * w * 0.25) yHits.push(y);
-    for (let x = 0; x < w; x++) if (colSum.data32S[x] > 255 * 25 * f) xHits.push(x);
     const ys = gridClusters(yHits, 4 * f);
-    // the scan-edge shadow shows up as a column line at the page border
-    const xs = gridClusters(xHits, 10 * f).filter(x => x > 0.05 * w && x < 0.96 * w);
+    const xs = gridPickColumns(Array.from(colSum.data32S.subarray(0, w)), f);
     return xs.length >= 3 && ys.length >= 3 ? { xs, ys, f } : null;
   } finally {
     mats.forEach(m => m.delete());
@@ -121,8 +135,9 @@ function _cellLineBoxes(ctx, cell, f) {
         if (dark((r * width + c) * 4)) { left = Math.min(left, c); right = Math.max(right, c); }
       }
     }
+    if (gridIsRuleFragment(b - a, height, right - left + 1)) return null;
     return { x0: x + Math.max(0, left - margin), x1: x + Math.min(width, right + 1 + margin), y0: y + a, y1: y + b };
-  });
+  }).filter(Boolean);
 }
 
 // Same return shape as ocrPageWithOnnx, plus the grid cells for the table builder.
@@ -158,4 +173,4 @@ async function ocrPageWithGrid(canvas, pageNum, grid) {
   return { words, lines: [], cells };
 }
 
-if (typeof module !== 'undefined') module.exports = { gridClusters, gridTextBands, gridCells };
+if (typeof module !== 'undefined') module.exports = { gridClusters, gridTextBands, gridCells, gridPickColumns, gridIsRuleFragment };

@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 
-const { gridClusters, gridTextBands, gridCells } = createRequire(import.meta.url)('./docs/boq-grid.js');
+const { gridClusters, gridTextBands, gridCells, gridPickColumns, gridIsRuleFragment } = createRequire(import.meta.url)('./docs/boq-grid.js');
 
 const tests = {
   'a thick ruled line collapses to one position'() {
@@ -36,6 +36,23 @@ const tests = {
   'cells are inset from the ruled lines and thin cells are dropped'() {
     const cells = gridCells([0, 100, 104], [0, 50, 60], 1);
     assert.deepEqual(cells.map(c => [c.row, c.col, c.x, c.y, c.width, c.height]), [[0, 0, 3, 3, 95, 45]]);
+  },
+  'column lines: strong lines kept, letter strokes dropped'() {
+    const mass = new Array(1000).fill(0);
+    for (const x of [100, 500, 900]) mass[x] = 255 * 400;   // table lines
+    for (const x of [300, 301, 302]) mass[x] = 255 * 60;         // strokes of letters, above the floor but weak
+    assert.deepEqual(gridPickColumns(mass, 1), [100, 500, 900]);
+  },
+  'column lines: the page-edge shadow does not set the scale'() {
+    const mass = new Array(1000).fill(0);
+    mass[10] = 255 * 5000;                                       // scan-edge shadow
+    for (const x of [100, 500, 900]) mass[x] = 255 * 300;
+    assert.deepEqual(gridPickColumns(mass, 1), [100, 500, 900]);
+  },
+  'a full-height narrow bar is a ruling fragment, a digit is not'() {
+    assert.equal(gridIsRuleFragment(20, 20, 5), true);
+    assert.equal(gridIsRuleFragment(13, 20, 5), false);          // a digit "1" centred in the cell
+    assert.equal(gridIsRuleFragment(20, 20, 60), false);         // a wide text line that fills the cell
   },
 };
 
