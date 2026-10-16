@@ -105,6 +105,9 @@ Race found on the way: creating a WebGPU session and WASM sessions at the same t
 With none of the new model files hosted (today), the app falls back to the fp16 encoder and the plain decoder with the worker pool: 2 pages in 64 s (about 6 min for 11 pages), correct output.
 `setTimeout`-based `yieldToMain` was suspected of being throttled in background tabs; replacing it with a message channel changed nothing in headless Chrome, so it was left alone.
 
+## Uploaded
+The four files are on `dzngo/vietocr-models` under `vietocr/` (commit 7fc2a3c): `encoder_int8.onnx`, `encoder_fp16w.onnx`, `decoder_init_fp16w.onnx`, `decoder_step_fp16w.onnx`; sizes match the local files. Checked with no local overrides, fresh browser profiles, full contract: CPU path 106 s (rows 472, numbers 0.960, description error 0.031); GPU path 60 s including the first download (rows 472, numbers 0.966, description error 0.029).
+
 ## Not measured
 - Borderless tables: the grid path returns nothing there and the detector path runs as before; only the contract and the synthetic document (both ruled) were tested.
 - WebGPU: the new backend check (adapter must have `shader-f16`) was written after seeing fp16 models return only `<pad>` tokens under a WebGPU adapter without f16; I did not run a machine with working f16 shaders.
