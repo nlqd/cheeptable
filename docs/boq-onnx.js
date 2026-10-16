@@ -3,26 +3,13 @@
 'use strict';
 
 // ── Configuration ──
-const ONNX_MODEL_BASE = 'https://huggingface.co/dzngo/vietocr-models/resolve/main';
+// A developer can point the page at another copy of the models with localStorage['ct.models'] (a link must not be able to).
+const ONNX_MODEL_BASE = (() => { try { return localStorage.getItem('ct.models'); } catch (e) { return null; } })() || 'https://huggingface.co/dzngo/vietocr-models/resolve/main';
 const ONNX_MODELS = {
   det:     `${ONNX_MODEL_BASE}/paddleocr/det_v3.onnx`,
-  encoder: `${ONNX_MODEL_BASE}/vietocr/encoder_fp16.onnx`,
-  // 30 MB instead of 55 MB. Static int8 (QDQ) with the first conv kept float; on the 473-row contract it matches fp32
-  // (description error 0.065, numbers 0.945 vs 0.947). Dynamic int8 would need ConvInteger, which onnxruntime-web lacks.
-  // Runs on the WASM backend only; WebGPU keeps the fp16 encoder.
-  encoderInt8: `${ONNX_MODEL_BASE}/vietocr/encoder_int8.onnx`,
-  // 55 MB, for WebGPU: fp16 weights, fp32 compute (cast folded at load). About 8 ms per line against 80-340 ms on the CPU.
-  encoderGpu: `${ONNX_MODEL_BASE}/vietocr/encoder_fp16w.onnx`,
-  // Same graphs with the weights stored as int8 and a per-row scale (hillclimb/weight_only.py), computed in fp32: about half
-  // the size and no measurable accuracy change (description error 0.0218 vs 0.0220 on 576 lines).
-  encoderGpuW8: `${ONNX_MODEL_BASE}/vietocr/encoder_w8.onnx`,
-  decoderInitW8: `${ONNX_MODEL_BASE}/vietocr/decoder_init_w8.onnx`,
-  decoderStepW8: `${ONNX_MODEL_BASE}/vietocr/decoder_step_w8.onnx`,
-  decoder: `${ONNX_MODEL_BASE}/vietocr/decoder_fp16.onnx`,
-  // Cached decoder for the WASM backend (two graphs, 19.6 MB together, same output as the plain one): weights are
-  // stored as fp16 and cast to fp32 when the session loads, which is faster on CPU than computing in fp16.
-  decoderInit: `${ONNX_MODEL_BASE}/vietocr/decoder_init_fp16w.onnx`,
-  decoderStep: `${ONNX_MODEL_BASE}/vietocr/decoder_step_fp16w.onnx`,
+  // The recogniser: one entropy-coded weight file and three graph files without weights (hillclimb/size/build_wire.py,
+  // docs/boq-wire.js). Weights are 2-6 bit codes with a step per group of weights; sessions are opened by boq-sessions.js.
+  compact: `${ONNX_MODEL_BASE}/vietocr/cheep-v1`,
   vocab:   `${ONNX_MODEL_BASE}/vietocr/vocab.txt`,
 };
 const CACHE_NAME = 'boq-onnx-models-v1';
@@ -46,11 +33,10 @@ const _NUMERIC_RE  = /^[\d\s.,:()\[\]%/=+\-xX*]+$/;
 // ── State ──
 let _detSession = null;
 let _encSession = null;
-let _dec = null;         // { plain } or { init, step } sessions, see boq-decode.js
-let _decoderUrls = null; // the same, as URLs, for the workers
+let _dec = null;         // { init, step } sessions, see boq-decode.js
+let _compact = null;     // URLs of the compact model files (CTSessions.files), for the page and for the workers
 let _vocab = null;       // array of chars, index = token id
 let _pool = null;        // OcrPool of single-threaded workers (WASM backend only), or null
-let _encoderUrl = null;  // the CPU encoder model in use, so the workers load the same one
 let _encoderOnGpu = false; // true: the page encodes on WebGPU and the workers only decode
 let onnxReady = false;
 let onnxLoading = false;
@@ -164,46 +150,26 @@ async function _modelSession(url, opts) {
 
 // The WebGPU encoder lives on the page thread. Returns null when this device cannot run it (the CPU path then takes over).
 async function _createGpuEncoder() {
-  for (const url of [ONNX_MODELS.encoderGpuW8, ONNX_MODELS.encoderGpu]) {
-    try {
-      const session = await _modelSession(url, { executionProviders: ['webgpu'] });
-      _encoderOnGpu = true;
-      return session;
-    } catch (e) {
-      if (e.network) throw e;
-      console.warn('[ONNX] GPU encoder unavailable from ' + url + ':', e);
-    }
+  try {
+    const { enc } = await CTSessions.open(_compact, { executionProviders: ['webgpu'] }, ['enc']);
+    _encoderOnGpu = true;
+    return enc;
+  } catch (e) {
+    if (e.network) throw e;
+    console.warn('[ONNX] GPU encoder unavailable:', e);
+    return null;
   }
-  return null;
 }
-
-// Which files this device will use: the first of each list that exists. Nothing is opened yet: on the CPU path only the
-// workers need sessions, and a phone does not have the memory for a second copy of every model on the page thread.
-async function _available(url) {
-  try { await _loadCached(url); return true; } catch (e) { if (e.network) throw e; return false; }
-}
-async function _firstAvailable(urls) {
-  for (const u of urls) if (await _available(u)) return u;
-  throw new Error('No model file could be fetched: ' + urls.join(', '));
-}
-async function _pickDecoderUrls() {
-  for (const [init, step] of [[ONNX_MODELS.decoderInitW8, ONNX_MODELS.decoderStepW8], [ONNX_MODELS.decoderInit, ONNX_MODELS.decoderStep]]) {
-    if (await _available(init) && await _available(step)) return { init, step };
-  }
-  await _firstAvailable([ONNX_MODELS.decoder]);
-  return { plain: ONNX_MODELS.decoder };
-}
-const _openDecoder = async (urls, opts) => urls.plain
-  ? { plain: await _modelSession(urls.plain, opts) }
-  : { init: await _modelSession(urls.init, opts), step: await _modelSession(urls.step, opts) };
 
 // Sessions on the page thread, made only when something has to be read here (no workers, or the GPU path's decoder).
+// A phone does not have the memory for a second copy of every model on the page thread, so nothing is opened earlier.
 let _mainReady = null;
 function _ensureMainSessions() {
   return _mainReady || (_mainReady = (async () => {
-    const wasm = { executionProviders: ['wasm'] };
-    if (!_dec) _dec = await _openDecoder(_decoderUrls, wasm);
-    if (!_encSession && !_encoderOnGpu) _encSession = await _modelSession(_encoderUrl, wasm);
+    const need = [...(_dec ? [] : ['init', 'step']), ...(_encSession || _encoderOnGpu ? [] : ['encq'])];
+    const s = await CTSessions.open(_compact, { executionProviders: ['wasm'] }, need);
+    if (s.init) _dec = { init: s.init, step: s.step };
+    if (s.encq) _encSession = s.encq;
   })().catch(e => { _mainReady = null; throw e; }));
 }
 
@@ -236,7 +202,7 @@ async function startOcrPool() {
   try {
     _pool = await OcrPool.create(_workerCount(), {
       wasmPaths: ort.env.wasm.wasmPaths, cacheName: CACHE_NAME,
-      encoderUrl: _encoderOnGpu ? null : _encoderUrl, decoder: _decoderUrls, vocab: _vocab,
+      files: _compact, onGpu: _encoderOnGpu, vocab: _vocab,
     });
   } catch (e) {
     console.warn('[ONNX] worker pool unavailable, reading on the page thread:', e);
@@ -260,18 +226,15 @@ async function initOnnxOCR(progressCb) {
     ort.env.wasm.wasmPaths = 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.22.0/dist/';
 
     const gpu = await _hasGpu();
-    if (progressCb) progressCb(`Loading ONNX models (${gpu ? '41' : '43'} MB first time)...`);
+    if (progressCb) progressCb('Loading the recognition model...');
 
     // Download everything in parallel (it fills the store). Sessions are opened later, and only where they are needed.
-    const candidates = [ONNX_MODELS.vocab, ONNX_MODELS.decoderInitW8, ONNX_MODELS.decoderStepW8,
-      gpu ? ONNX_MODELS.encoderGpuW8 : ONNX_MODELS.encoderInt8];
-    await Promise.all(candidates.map(u => _loadCached(u).catch(e => { if (e.network) throw e; return null; })));   // a missing file is handled by the fallbacks; a dead network is not
+    _compact = CTSessions.files(ONNX_MODELS.compact);
+    await Promise.all([ONNX_MODELS.vocab, ..._compactUrls()].map(u => _loadCached(u)));
 
     if (progressCb) progressCb('Creating ONNX sessions...');
 
-    _decoderUrls = await _pickDecoderUrls();
     _encSession = gpu ? await _createGpuEncoder() : null;       // WebGPU needs its session on the page thread
-    if (!_encoderOnGpu) _encoderUrl = await _firstAvailable([ONNX_MODELS.encoderInt8, ONNX_MODELS.encoder]);
     const vocabResp = await (await _loadCached(ONNX_MODELS.vocab)).text();
 
     _vocab = vocabResp.split('\n').filter(l => l.length > 0 || l === '');
@@ -291,6 +254,8 @@ async function initOnnxOCR(progressCb) {
     onnxLoading = false;
   }
 }
+
+const _compactUrls = () => [_compact.bin, _compact.enc, _compact.encq, _compact.init, _compact.step];   // both encoders: the GPU session may fail and leave the CPU path
 
 // ── PaddleOCR Detection ──
 

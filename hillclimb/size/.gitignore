@@ -1,0 +1,12 @@
+# generated: training data, checkpoints, exported graphs, packages (see FINDINGS-size.md, "Reproduce")
+train/
+exp_*/
+wire_*/
+hosted/
+cells/
+runs/*.pt
+*.pkl
+calib.npz
+__pycache__/
+*.log
+queue*.sh

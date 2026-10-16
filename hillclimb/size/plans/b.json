@@ -1,0 +1,1 @@
+{"cnn_a":[6,0],"cnn_b":[4,64],"cnn_c":[4,64],"cnn_1x1":[4,64],"enc_attn":[4,64],"enc_ffn":[4,64],"dec_self":[4,64],"dec_cross":[4,64],"dec_ffn":[4,64],"emb_fc":[6,0]}

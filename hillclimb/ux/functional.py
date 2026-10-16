@@ -18,7 +18,8 @@ def js(expr):
 
 def fresh(mode="guided", lang="vi"):
     rodney("open", "about:blank"); rodney("open", url); rodney("waitload")
-    js("(localStorage.setItem('ct.mode', '%s'), localStorage.setItem('ct.lang', '%s'), 1)" % (mode, lang))
+    models = __import__("os").environ.get("CT_MODELS")      # a copy of the models to test instead of the hosted ones
+    js("(localStorage.setItem('ct.mode', '%s'), localStorage.setItem('ct.lang', '%s'), %s 1)" % (mode, lang, ("localStorage.setItem('ct.models', '%s')," % models) if models else ""))
     rodney("open", url); rodney("waitload"); time.sleep(0.8)
     js("(window.alert = () => { window.__alerted = true; }, window.__errors = [], window.addEventListener('error', e => window.__errors.push(String(e.message))), window.addEventListener('unhandledrejection', e => window.__errors.push(String(e.reason))), 1)")
 
@@ -86,8 +87,8 @@ js("(CT.setLang('en'), 1)"); time.sleep(0.8)
 check("English: title and button are translated", "Read" in js("document.getElementById('resTitle').textContent") and "Download" in js("document.getElementById('dlXlsx').textContent"))
 js("(CT.setLang('vi'), 1)")
 
-# 6. an image instead of a PDF
-fresh()
+# 6. an image instead of a PDF (simple layout shows every row; the guided one starts on the cells that need checking)
+fresh("simple")
 rodney("file", "#fileInput", fx + "/page3img-03.png")
 ok = wait(RESULT_READY)
 rows = int(js("document.querySelectorAll('table.grid tbody tr:not([hidden])').length") or 0) if ok else 0
