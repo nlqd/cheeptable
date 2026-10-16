@@ -83,15 +83,25 @@ function gridCells(xs, ys, f) {
 
 // ── OpenCV: ruled lines -> grid ──
 
+// Line detection runs on a copy no wider than GRID_REF_WIDTH (the size it was tuned on): the work falls with the pixel count and the
+// ruled lines are still several pixels thick there. Positions are scaled back to the full-size canvas.
 async function findGrid(canvas) {
   if (!opencvReady || typeof cv === 'undefined') return null;
-  const f = canvas.width / GRID_REF_WIDTH;
-  const w = canvas.width, h = canvas.height;
+  const full = canvas.width / GRID_REF_WIDTH;
+  let src = canvas, k = 1;
+  if (canvas.width > GRID_REF_WIDTH) {
+    k = GRID_REF_WIDTH / canvas.width;
+    src = document.createElement('canvas');
+    src.width = GRID_REF_WIDTH; src.height = Math.round(canvas.height * k);
+    src.getContext('2d').drawImage(canvas, 0, 0, src.width, src.height);
+  }
+  const f = src.width / GRID_REF_WIDTH;
+  const w = src.width, h = src.height;
   const mats = [];
   const keep = (m) => { mats.push(m); return m; };
   try {
     const gray = keep(new cv.Mat());
-    cv.cvtColor(keep(cv.imread(canvas)), gray, cv.COLOR_RGBA2GRAY);
+    cv.cvtColor(keep(cv.imread(src)), gray, cv.COLOR_RGBA2GRAY);
     const bw = keep(new cv.Mat());
     const block = Math.round(25 * f) | 1;
     cv.adaptiveThreshold(gray, bw, 255, cv.ADAPTIVE_THRESH_MEAN_C, cv.THRESH_BINARY_INV, block, 10);
@@ -106,9 +116,9 @@ async function findGrid(canvas) {
 
     const yHits = [];
     for (let y = 0; y < h; y++) if (rowSum.data32S[y] > 255 * w * 0.25) yHits.push(y);
-    const ys = gridClusters(yHits, 4 * f);
-    const xs = gridPickColumns(Array.from(colSum.data32S.subarray(0, w)), f);
-    return xs.length >= 3 && ys.length >= 3 ? { xs, ys, f } : null;
+    const ys = gridClusters(yHits, 4 * f).map(y => Math.round(y / k));
+    const xs = gridPickColumns(Array.from(colSum.data32S.subarray(0, w)), f).map(x => Math.round(x / k));
+    return xs.length >= 3 && ys.length >= 3 ? { xs, ys, f: full } : null;
   } finally {
     mats.forEach(m => m.delete());
   }

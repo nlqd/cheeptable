@@ -1,0 +1,47 @@
+{
+ "label": "baseline",
+ "url": "http://localhost:8080/docs/index.html",
+ "runs": 3,
+ "fcp": 144,
+ "lcp": 144,
+ "dcl": 126,
+ "load": 678,
+ "cls": 0,
+ "longTaskMs": 0,
+ "requests": 25,
+ "blockingScripts": 21,
+ "inlineScriptBytes": 11437,
+ "bytesAtLoad": 4038381,
+ "axeEmpty": [],
+ "job": {
+  "jobMs": 30002,
+  "updates": 8,
+  "firstUpdateMs": 7,
+  "maxGapMs": 11684,
+  "windowsWithUpdate": 0.03,
+  "updatesPerSec": 0.3,
+  "finished": true
+ },
+ "axeResult": [
+  {
+   "id": "aria-required-children",
+   "impact": "critical",
+   "nodes": 2
+  },
+  {
+   "id": "aria-required-parent",
+   "impact": "critical",
+   "nodes": 1
+  },
+  {
+   "id": "color-contrast",
+   "impact": "serious",
+   "nodes": 3
+  },
+  {
+   "id": "empty-table-header",
+   "impact": "minor",
+   "nodes": 1
+  }
+ ]
+}
