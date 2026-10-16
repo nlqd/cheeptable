@@ -16,6 +16,8 @@ CT.addStrings({
   failed: 'Không xử lý được tệp: {msg}', retryHint: 'Thử tệp nhỏ hơn, tải lại trang, hoặc dùng trình duyệt khác.',
   barLabel: 'Tiến độ xử lý', announceDone: 'Đã xong bước nhận dạng.', announcePct: 'Đã được {p} phần trăm.',
   pageImg: 'Ảnh trang {p}',
+  retrying: 'Kết nối chập chờn, đang thử lại ({a}/{m})…', pageRetry: 'Trang {p} gặp lỗi, đang thử lại…', retryBtn: 'Thử lại',
+  netFailed: 'Không tải được dữ liệu cần thiết, có thể do mạng chập chờn. Phần đã tải được giữ lại nên lần thử lại sẽ nhanh hơn.',
 }, {
   jobTitle: 'Processing “{name}”', stepFile: 'Choose file', stepRead: 'Recognise', stepCheck: 'Review', stepDownload: 'Download Excel',
   stEngine: 'Loading the engine ({n}/{m})…', stModels: 'Downloading recognition models: {a} / {b} MB', stModelsCached: 'Starting the models…',
@@ -29,6 +31,8 @@ CT.addStrings({
   failed: 'The file could not be processed: {msg}', retryHint: 'Try a smaller file, reload the page, or use another browser.',
   barLabel: 'Processing progress', announceDone: 'Recognition finished.', announcePct: '{p} percent done.',
   pageImg: 'Page {p} image',
+  retrying: 'The connection is unstable, trying again ({a}/{m})…', pageRetry: 'Page {p} hit an error, trying again…', retryBtn: 'Try again',
+  netFailed: 'The data needed could not be downloaded, probably because of an unstable connection. What was already downloaded is kept, so trying again will be faster.',
 });
 
 (() => {
@@ -167,7 +171,9 @@ CT.addStrings({
     const busy = S.stage !== 'done' && (S.stage === 'build' || S.stage === 'open' || [...S.pages.values()].some(i => i.status === 'render' || i.status === 'grid'));
     if (busy) ui.bar.setAttribute('data-busy', ''); else ui.bar.removeAttribute('data-busy');
     ui.bar.setAttribute('aria-valuenow', String(pct));
-    ui.status.textContent = statusText();
+    const note = S.notice && now < S.noticeUntil ? S.notice : null;
+    ui.status.textContent = note || statusText();
+    ui.status.dataset.warn = note ? '1' : '';
     const doneCells = [...S.pages.values()].reduce((s, i) => s + i.done, 0), allCells = [...S.pages.values()].reduce((s, i) => s + i.total, 0);
     ui.mPages.textContent = S.numPages ? CT.t('pagesLbl', { p: Math.max(S.cur, 1), n: S.numPages }) : '';
     ui.mCells.textContent = allCells ? CT.t('cellsLbl', { d: doneCells, t: allCells }) : '';
@@ -268,6 +274,10 @@ CT.addStrings({
   });
   CT.on('page:done', ({ page, kind }) => { if (!S) return; const it = pageItem(page); it.status = kind === 'text' ? 'text' : 'done'; if (kind === 'text') it.done = it.total = 0; schedule(); });
   CT.on('page:error', ({ page }) => { if (!S) return; pageItem(page).status = 'error'; schedule(); });
+  const warn = (text) => { if (!S) return; S.notice = text; S.noticeUntil = performance.now() + 5000; if (ui) ui.live.textContent = text; schedule(); };
+  CT.on('model:retry', (e) => warn(CT.t('retrying', { a: e.attempt, m: e.max })));
+  CT.on('engine:retry', (e) => warn(CT.t('retrying', { a: e.attempt, m: 3 })));
+  CT.on('page:retry', (e) => warn(CT.t('pageRetry', { p: e.page })));
   CT.on('build:start', () => { if (!S) return; S.stage = 'build'; ui.steps.children[1].className = 'now'; schedule(); });
 
   CT.ensureResults = () => Promise.all([CT.loadScript('results-core.js', true), CT.loadScript('results.js', true), CT.mode === 'workbench' ? CT.loadScript('workbench.js') : null]);
@@ -288,12 +298,18 @@ CT.addStrings({
     ui.end.hidden = false;
     ui.end.textContent = '';
     ui.end.append(el('p', kind === 'error' ? 'bad' : '', message));
-    const again = el('button', 'btn', CT.t('again')); again.type = 'button';
-    again.addEventListener('click', () => { CT.showStage('start'); $('fileInput').focus(); });
-    ui.end.append(again);
-    again.focus();
+    const row = el('div', 'endbtns');
+    const other = el('button', kind === 'error' ? 'btn quiet' : 'btn', CT.t('again')); other.type = 'button';
+    other.addEventListener('click', () => { CT.showStage('start'); $('fileInput').focus(); });
+    if (kind === 'error' && CT.lastFile) {
+      const retry = el('button', 'btn', CT.t('retryBtn')); retry.type = 'button';
+      retry.addEventListener('click', () => CT.retry());
+      row.append(retry, other);
+      ui.end.append(row);
+      retry.focus();
+    } else { row.append(other); ui.end.append(row); other.focus(); }
   };
   CT.on('job:cancel', () => { if (S && !S.finished) { S.finished = true; finish(CT.t('cancelled'), 'info'); } });
-  CT.on('job:error', ({ message }) => { if (S) { S.finished = true; finish(CT.t('failed', { msg: message }) + ' ' + CT.t('retryHint'), 'error'); } });
+  CT.on('job:error', ({ message, network }) => { if (S) { S.finished = true; finish(network ? CT.t('netFailed') : CT.t('failed', { msg: message }) + ' ' + CT.t('retryHint'), 'error'); } });
   CT.on('lang', () => { if (S && ui) { ui.cancel.textContent = CT.t('cancel'); ui.title.textContent = CT.t('jobTitle', { name: S.file.name }); ui.steps.querySelectorAll('li').forEach(li => { li.lastChild.textContent = CT.t(li.dataset.key); }); schedule(); } });
 })();

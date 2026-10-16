@@ -50,8 +50,15 @@ header.top{max-width:1100px;margin:0 auto;padding:20px 0 12px;display:flex;flex-
 .brand>p{color:var(--dim);font-size:.95rem;max-width:34rem}
 .badges{list-style:none;padding:0;display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
 .badges li{font-size:.8rem;font-weight:600;padding:2px 10px;border:1px solid var(--ok);color:var(--ok);border-radius:999px}
-.prefs{display:flex;flex-wrap:wrap;gap:8px 16px;align-items:center}
-.seg{display:inline-flex;border:1px solid var(--border);border-radius:8px;overflow:hidden}
+.opts{position:relative}
+.opts summary{cursor:pointer;list-style:none;border:1px solid var(--border);border-radius:8px;padding:8px 14px;min-height:44px;line-height:26px;font-size:.9rem}
+.opts summary::-webkit-details-marker{display:none}
+.opts[open] summary{background:var(--surface)}
+.optsbox{position:absolute;right:0;top:calc(100% + 6px);z-index:20;width:min(92vw,340px);background:var(--bg);border:1px solid var(--border);border-radius:12px;padding:14px;display:grid;gap:12px;box-shadow:0 8px 30px rgba(0,0,0,.15)}
+.optsbox fieldset{border:0;padding:0;min-width:0}
+.optsbox legend{font-size:.85rem;color:var(--dim);margin-bottom:6px;padding:0}
+.check{display:flex;gap:8px;align-items:flex-start;font-size:.85rem}.check input{width:20px;height:20px;flex:none;margin-top:2px}
+.seg{display:flex;flex-wrap:wrap}.seg label{border:1px solid var(--border);margin:0 -1px -1px 0}
 .seg label{position:relative;cursor:pointer}
 .seg input{position:absolute;opacity:0;inset:0;cursor:pointer}
 .seg span{display:block;padding:8px 14px;font-size:.9rem;min-height:40px;line-height:24px}
@@ -61,15 +68,20 @@ header.top{max-width:1100px;margin:0 auto;padding:20px 0 12px;display:flex;flex-
 .lang button:first-child{border-radius:8px 0 0 8px}.lang button:last-child{border-radius:0 8px 8px 0;border-left:0}
 .lang button[aria-pressed=true]{background:var(--accent);color:var(--on-accent);font-weight:600}
 main{max-width:1100px;margin:0 auto}
-#modeHint{color:var(--dim);font-size:.85rem;margin-bottom:16px}
+#modeHint{color:var(--dim);font-size:.82rem;margin:0}
 #notice{margin:0 0 12px;padding:10px 14px;border-radius:8px;background:var(--surface);border:1px solid var(--border)}
 #notice[data-kind=error]{border-color:var(--err);color:var(--err)}
-#dropzone{position:relative;border:2px dashed var(--border);border-radius:14px;padding:44px 20px;text-align:center;background:var(--surface);transition:border-color .15s}
+#dropzone{position:relative;border:2px dashed var(--border);border-radius:14px;padding:36px 20px;text-align:center;background:var(--surface);transition:border-color .15s}
 #dropzone:hover,#dropzone.dragover,#dropzone:focus-within{border-color:var(--accent)}
 #dropzone:focus-within{outline:3px solid var(--focus);outline-offset:3px}
 #dropzone input{position:absolute;inset:0;width:100%;height:100%;opacity:0;cursor:pointer}
 #dropzone .big{font-size:1.2rem;font-weight:600}
 #dropzone .sub{color:var(--dim)}
+.bigbtn{display:inline-block;padding:14px 36px;font-size:1.1rem;margin:14px 0 8px;pointer-events:none}
+.up{color:var(--accent);margin-bottom:6px}
+.samplerow{text-align:center;margin:12px 0 0}
+.linkbtn{background:none;border:0;color:var(--accent);font:inherit;text-decoration:underline;cursor:pointer;padding:10px 12px;min-height:44px}
+body.dragging::after{content:attr(data-drop);position:fixed;inset:12px;z-index:50;display:grid;place-items:center;font-size:1.4rem;font-weight:700;color:var(--accent);background:color-mix(in srgb,var(--bg) 88%,transparent);border:3px dashed var(--accent);border-radius:16px}
 .btn{background:var(--accent);color:var(--on-accent);border:0;border-radius:8px;padding:10px 20px;min-height:44px;font:inherit;font-weight:600;cursor:pointer}
 .btn:hover{filter:brightness(1.08)}.btn:disabled{opacity:.5;cursor:not-allowed}
 .btn.quiet{background:none;color:var(--accent);border:1px solid var(--accent)}
@@ -98,17 +110,21 @@ footer a{color:inherit}
     <p data-i18n="tagline">OCR tiếng Việt miễn phí, không quảng cáo: chuyển bảng trong PDF và ảnh sang Excel, ngay trong trình duyệt.</p>
     <ul class="badges"><li data-i18n="badgeFree">Miễn phí</li><li data-i18n="badgeNoAds">Không quảng cáo</li><li data-i18n="badgeNoSignup">Không cần đăng ký</li><li data-i18n="badgeLocal">Chạy trong trình duyệt</li></ul>
   </div>
-  <div class="prefs">
-    <div class="seg" role="radiogroup" aria-labelledby="modeLabel">
-      <span id="modeLabel" class="sr" style="position:absolute;left:-999px" data-i18n="modeLabel">Cách hiển thị</span>
-      <label><input type="radio" name="mode" value="simple"><span data-i18n="modeSimple">Đơn giản</span></label>
-      <label><input type="radio" name="mode" value="guided" checked><span data-i18n="modeGuided">Từng bước</span></label>
-      <label><input type="radio" name="mode" value="workbench"><span data-i18n="modeWorkbench">Đối chiếu</span></label>
+  <details class="opts" id="opts">
+    <summary data-i18n="optionsLabel">Tùy chọn</summary>
+    <div class="optsbox">
+      <fieldset class="seg" role="radiogroup">
+        <legend id="modeLabel" data-i18n="modeLabel">Cách hiển thị</legend>
+        <label><input type="radio" name="mode" value="simple"><span data-i18n="modeSimple">Đơn giản</span></label>
+        <label><input type="radio" name="mode" value="guided" checked><span data-i18n="modeGuided">Từng bước</span></label>
+        <label><input type="radio" name="mode" value="workbench"><span data-i18n="modeWorkbench">Đối chiếu</span></label>
+      </fieldset>
+          <div class="lang" role="group" aria-label="Ngôn ngữ / Language">
+        <button type="button" data-lang-btn="vi" aria-pressed="true">Tiếng Việt</button><button type="button" data-lang-btn="en" aria-pressed="false">English</button>
+      </div>
+      <label class="check"><input type="checkbox" id="lowmem"> <span data-i18n="lowmemLabel">Tiết kiệm bộ nhớ (bật khi điện thoại bị treo hoặc tải lại giữa chừng)</span></label>
     </div>
-    <div class="lang" role="group" aria-label="Ngôn ngữ / Language">
-      <button type="button" data-lang-btn="vi" aria-pressed="true">Tiếng Việt</button><button type="button" data-lang-btn="en" aria-pressed="false">English</button>
-    </div>
-  </div>
+  </details>
 </header>
 
 <main id="main" tabindex="-1">
@@ -117,14 +133,16 @@ footer a{color:inherit}
 
   <section id="stage-start" aria-label="Chọn tệp">
     <div id="dropzone">
-      <input type="file" id="fileInput" accept=".pdf,.PDF,application/pdf,image/jpeg,image/png,image/webp" aria-label="Chọn tệp PDF hoặc ảnh" data-i18n-attr="aria-label:dropMain">
+      <input type="file" id="fileInput" accept=".pdf,.PDF,application/pdf,image/jpeg,image/png,image/webp" aria-label="Chọn tệp PDF hoặc ảnh" data-i18n-attr="aria-label:chooseFile">
+      <svg class="up" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M12 16V4m0 0-4 4m4-4 4 4M4 15v4a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-4"/></svg>
       <p class="big" data-i18n="dropMain">Kéo tệp PDF hoặc ảnh vào đây</p>
-      <p class="sub" data-i18n="dropOr">hoặc bấm để chọn tệp</p>
-      <div class="row"><button type="button" class="btn quiet" id="sampleBtn" data-i18n="sampleBtn">Thử với tệp mẫu</button></div>
+      <span class="btn bigbtn" aria-hidden="true" data-i18n="chooseFile">Chọn tệp</span>
+      <p class="sub" data-i18n="formats">PDF, JPG, PNG · tối đa 50 MB · hoặc dán ảnh bằng Ctrl+V</p>
     </div>
+    <p class="samplerow"><button type="button" class="linkbtn" id="sampleBtn" data-i18n="sampleLink">Chưa có tệp? Thử với tệp mẫu</button></p>
     <div class="facts">
       <p><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="3" y="7" width="10" height="7" rx="1.5"/><path d="M5 7V5a3 3 0 0 1 6 0v2"/></svg><span data-i18n="privacy">Tệp không rời khỏi máy bạn: mọi xử lý diễn ra ngay trong trình duyệt.</span></p>
-      <p><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M8 2v8m0 0 3-3m-3 3L5 7M3 13h10"/></svg><span data-i18n="sizeNote" data-mb="41">Lần đầu cần tải khoảng 41 MB mô hình nhận dạng (một lần, được lưu trong trình duyệt).</span></p>
+      <p><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M8 2v8m0 0 3-3m-3 3L5 7M3 13h10"/></svg><span id="modelNote" data-i18n="sizeNote" data-mb="41">Lần đầu cần tải khoảng 41 MB mô hình nhận dạng (một lần, được lưu trong trình duyệt).</span></p>
     </div>
   </section>
 
@@ -157,6 +175,7 @@ footer a{color:inherit}
 
 <footer><span data-i18n="footerFree">Miễn phí, không quảng cáo.</span> · <a href="https://dzungngo.com">dzungngo.com</a></footer>
 <noscript><p style="max-width:1100px;margin:16px auto;padding:12px;border:1px solid #b91c1c">CheepTable cần JavaScript để nhận dạng bảng ngay trong trình duyệt. / CheepTable needs JavaScript to run OCR in your browser.</p></noscript>
+<script src="boq-store.js" defer></script>
 <script src="app.js" defer></script>
 </body>
 </html>

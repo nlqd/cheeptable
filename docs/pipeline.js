@@ -120,7 +120,7 @@ CT.runJob = async function (file) {
       if (!onnxBackendAvailable) {
         CT.emit('models:start', {});
         const ok = await initOnnxOCR((msg) => CT.emit('models:status', { message: msg }));
-        if (!ok) throw new Error('ONNX initialization failed');
+        if (!ok) throw (CT.state.initError || new Error('ONNX initialization failed'));
         onnxBackendAvailable = true;
         CT.emit('models:ready', { gpu: _encoderOnGpu });
       }
@@ -146,9 +146,20 @@ CT.runJob = async function (file) {
 
       currentOCRPage = p;
       try {
-        await poolReady;                         // reads must not start on the page thread by accident
         CT.emit('page:status', { page: p, status: 'read' });
-        const ocrResult = grid ? await ocrPageWithGrid(canvas, p, grid) : await ocrPageWithOnnx(canvas, p);
+        let ocrResult;
+        for (let attempt = 1; ; attempt++) {       // one automatic second try, on fresh workers, before the page is given up
+          try {
+            await poolReady;                       // reads must not start on the page thread by accident
+            ocrResult = grid ? await ocrPageWithGrid(canvas, p, grid) : await ocrPageWithOnnx(canvas, p);
+            break;
+          } catch (err) {
+            if (cancelled() || attempt >= 2) throw err;
+            log('  Page ' + p + ': retrying after ' + err.message, 'warn');
+            CT.emit('page:retry', { page: p, message: err.message });
+            stopOcrPool(); poolReady = startOcrPool();
+          }
+        }
         if (grid) {
           log('  Page ' + p + ': ruled grid ' + (grid.xs.length - 1) + ' columns x ' + (grid.ys.length - 1) + ' rows', 'ok');
           borderData = { cells: ocrResult.cells, lines: { horizontal: [], vertical: [] } };
@@ -169,6 +180,7 @@ CT.runJob = async function (file) {
         if (cancelled()) { CT.emit('job:cancel'); return; }
         log('  Page ' + p + ': OCR error - ' + error.message, 'err');
         console.error('[OCR Error] Page ' + p + ':', error);
+        (CT.state.failedPages = CT.state.failedPages || []).push(p);
         CT.emit('page:error', { page: p, message: error.message });
         continue;
       }

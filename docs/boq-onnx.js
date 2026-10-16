@@ -59,40 +59,90 @@ let onnxLoading = false;
 
 // ── Model Loading ──
 
-// Download with byte progress so the page can show a real bar. A response without a usable Content-Length is returned as is.
+// Download with byte progress, stall detection, retries with backoff, and resume. A dropped connection or a stall of 20 s does
+// not restart a 28 MB file: the bytes already received are kept (even across a failed job and its retry) and the next attempt
+// asks for the rest with a Range request. If the server ignores Range the file starts over. A 4xx answer is not retried
+// (a missing file will not appear), except 408 and 429. Errors that survive the retries are marked `network` so the
+// loaders do not mistake them for "this file does not exist, try the next one".
+const _partial = new Map();   // url -> { chunks, loaded, total, type, ... }
+const DL_ATTEMPTS = 5, DL_STALL_MS = 20000, DL_PART = 1 << 20;
+const _sleep = (ms) => new Promise(r => setTimeout(r, ms));
+
 async function _fetchWithProgress(url) {
-  const resp = await fetch(url);
-  if (!resp.ok) throw new Error(`HTTP ${resp.status} fetching ${url}`);
-  const total = Number(resp.headers.get('content-length')) || 0;
-  if (!resp.body || !total) return resp;
-  const reader = resp.body.getReader();
-  const chunks = [];
-  let loaded = 0;
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    chunks.push(value);
-    loaded += value.length;
-    window.CT?.emit('model:progress', { url, loaded: Math.min(loaded, total), total });
+  const st = _partial.get(url) || { chunks: [], loaded: 0, total: 0, type: 'application/octet-stream', restored: false, parts: 0, pend: [], pendBytes: 0, writes: Promise.resolve() };
+  _partial.set(url, st);
+  if (!st.restored) {                                   // a previous visit may have been killed half way: pick up what it saved
+    st.restored = true;
+    const saved = await CTStore.loadParts(url);
+    if (saved && saved.loaded) { st.chunks = saved.chunks; st.loaded = saved.loaded; st.total = saved.total; st.parts = saved.chunks.length; }
   }
-  return new Response(new Blob(chunks), { status: 200, headers: { 'Content-Type': resp.headers.get('content-type') || 'application/octet-stream' } });
+  const flush = (force) => {
+    if (!st.pendBytes || (!force && st.pendBytes < DL_PART)) return;
+    const bytes = new Uint8Array(st.pendBytes);
+    let at = 0;
+    st.pend.forEach(c => { bytes.set(c, at); at += c.length; });
+    st.pend = []; st.pendBytes = 0;
+    const index = st.parts++;
+    st.writes = st.writes.then(() => CTStore.savePart(url, index, bytes));
+  };
+  const reset = async () => { st.chunks = []; st.loaded = 0; st.parts = 0; st.pend = []; st.pendBytes = 0; await CTStore.clearParts(url); };
+  for (let attempt = 1; ; attempt++) {
+    const ctrl = new AbortController();
+    let timer;
+    const arm = () => { clearTimeout(timer); timer = setTimeout(() => ctrl.abort(), DL_STALL_MS); };
+    try {
+      arm();
+      const resp = await fetch(url, { headers: st.loaded ? { Range: `bytes=${st.loaded}-` } : {}, signal: ctrl.signal });
+      if (!resp.ok) { const e = new Error(`HTTP ${resp.status} fetching ${url}`); e.status = resp.status; throw e; }
+      if (st.loaded && resp.status !== 206) await reset();                              // the server ignored the range
+      const range = /\/(\d+)$/.exec(resp.headers.get('content-range') || '');
+      const total = range ? Number(range[1]) : (Number(resp.headers.get('content-length')) || 0) + st.loaded;
+      if (st.total && total && total !== st.total) await reset();                       // the file changed since the partial copy
+      st.total = total;
+      st.type = resp.headers.get('content-type') || st.type;
+      if (st.total) CTStore.saveMeta(url, { total: st.total });
+      if (!resp.body) { const all = new Uint8Array(await resp.arrayBuffer()); st.chunks.push(all); st.pend.push(all); st.pendBytes += all.length; st.loaded += all.length; st.total = st.loaded; }
+      else {
+        const reader = resp.body.getReader();
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          arm();
+          st.chunks.push(value);
+          st.pend.push(value); st.pendBytes += value.length;
+          st.loaded += value.length;
+          flush(false);
+          window.CT?.emit('model:progress', { url, loaded: st.total ? Math.min(st.loaded, st.total) : st.loaded, total: st.total || st.loaded });
+        }
+      }
+      clearTimeout(timer);
+      if (st.total && st.loaded < st.total) throw new Error(`connection closed after ${st.loaded} of ${st.total} bytes`);
+      flush(true);
+      await st.writes;
+      _partial.delete(url);
+      return new Response(new Blob(st.chunks), { status: 200, headers: { 'Content-Type': st.type } });
+    } catch (e) {
+      clearTimeout(timer);
+      flush(true);                                      // what has arrived is kept, in memory and on disk
+      const permanent = e.status >= 400 && e.status < 500 && e.status !== 408 && e.status !== 429;
+      if (permanent) { _partial.delete(url); await CTStore.clearParts(url); throw e; }
+      if (attempt >= DL_ATTEMPTS) { e.network = true; throw e; }
+      window.CT?.emit('model:retry', { url, attempt, max: DL_ATTEMPTS, loaded: st.loaded, total: st.total });
+      await _sleep(Math.min(8000, 1000 * 2 ** (attempt - 1)));
+    }
+  }
 }
 
 async function _loadCached(url) {
-  try {
-    const cache = await caches.open(CACHE_NAME);
-    let resp = await cache.match(url);
-    if (!resp) {
-      resp = await _fetchWithProgress(url);
-      await cache.put(url, resp.clone());
-    } else {
-      window.CT?.emit('model:progress', { url, loaded: 1, total: 1, cached: true });
-    }
-    return resp;
-  } catch (e) {
-    // Cache API unavailable (e.g. file:// protocol), fall back to direct fetch
-    return fetch(url);
-  }
+  const hit = await CTStore.get(url);
+  if (hit) { window.CT?.emit('model:progress', { url, loaded: 1, total: 1, cached: true }); return hit; }
+  const resp = await _fetchWithProgress(url);
+  const type = resp.headers.get('content-type');
+  const blob = await resp.blob();
+  const where = await CTStore.put(url, blob, type);
+  if (where) CTStore.clearParts(url);                   // kept nowhere? then the partial copy stays and the next visit resumes it
+  window.CT?.emit('model:stored', { url, where });
+  return new Response(blob, { status: 200, headers: { 'Content-Type': type || 'application/octet-stream' } });
 }
 
 // WebGPU runs the encoder when the browser has an adapter. That model stores fp16 weights and computes in fp32, so
@@ -112,28 +162,49 @@ async function _modelSession(url, opts) {
   return ort.InferenceSession.create(await resp.arrayBuffer(), opts);
 }
 
-async function _createEncoder(gpu) {
-  if (gpu) {
-    for (const url of [ONNX_MODELS.encoderGpuW8, ONNX_MODELS.encoderGpu]) {
-      try {
-        const session = await _modelSession(url, { executionProviders: ['webgpu'] });
-        _encoderOnGpu = true;
-        return session;
-      } catch (e) {
-        console.warn('[ONNX] GPU encoder unavailable from ' + url + ':', e);
-      }
+// The WebGPU encoder lives on the page thread. Returns null when this device cannot run it (the CPU path then takes over).
+async function _createGpuEncoder() {
+  for (const url of [ONNX_MODELS.encoderGpuW8, ONNX_MODELS.encoderGpu]) {
+    try {
+      const session = await _modelSession(url, { executionProviders: ['webgpu'] });
+      _encoderOnGpu = true;
+      return session;
+    } catch (e) {
+      if (e.network) throw e;
+      console.warn('[ONNX] GPU encoder unavailable from ' + url + ':', e);
     }
   }
-  const wasm = { executionProviders: ['wasm'] };
-  try {
-    const session = await _modelSession(ONNX_MODELS.encoderInt8, wasm);
-    _encoderUrl = ONNX_MODELS.encoderInt8;
-    return session;
-  } catch (e) {
-    console.warn('[ONNX] int8 encoder unavailable, using fp16:', e);
+  return null;
+}
+
+// Which files this device will use: the first of each list that exists. Nothing is opened yet: on the CPU path only the
+// workers need sessions, and a phone does not have the memory for a second copy of every model on the page thread.
+async function _available(url) {
+  try { await _loadCached(url); return true; } catch (e) { if (e.network) throw e; return false; }
+}
+async function _firstAvailable(urls) {
+  for (const u of urls) if (await _available(u)) return u;
+  throw new Error('No model file could be fetched: ' + urls.join(', '));
+}
+async function _pickDecoderUrls() {
+  for (const [init, step] of [[ONNX_MODELS.decoderInitW8, ONNX_MODELS.decoderStepW8], [ONNX_MODELS.decoderInit, ONNX_MODELS.decoderStep]]) {
+    if (await _available(init) && await _available(step)) return { init, step };
   }
-  _encoderUrl = ONNX_MODELS.encoder;
-  return _modelSession(ONNX_MODELS.encoder, wasm);
+  await _firstAvailable([ONNX_MODELS.decoder]);
+  return { plain: ONNX_MODELS.decoder };
+}
+const _openDecoder = async (urls, opts) => urls.plain
+  ? { plain: await _modelSession(urls.plain, opts) }
+  : { init: await _modelSession(urls.init, opts), step: await _modelSession(urls.step, opts) };
+
+// Sessions on the page thread, made only when something has to be read here (no workers, or the GPU path's decoder).
+let _mainReady = null;
+function _ensureMainSessions() {
+  return _mainReady || (_mainReady = (async () => {
+    const wasm = { executionProviders: ['wasm'] };
+    if (!_dec) _dec = await _openDecoder(_decoderUrls, wasm);
+    if (!_encSession && !_encoderOnGpu) _encSession = await _modelSession(_encoderUrl, wasm);
+  })().catch(e => { _mainReady = null; throw e; }));
 }
 
 // One encoder run at a time on the GPU session; reads are queued behind each other.
@@ -149,9 +220,14 @@ function _gpuEncode(tensor) {
 // Falls back to reading on the page thread when workers cannot start.
 // Each worker holds its own copy of the models, about 250 MB, so the count is capped. Two pages took 330 s with 1
 // worker, 165 s with 2, 90 s with 4 and 60 s with 8; past 4 the gain flattens.
+// Memory decides, not cores: a phone has eight cores and not enough memory for four copies of the models, and a tab that
+// runs out is killed without a word. After such a kill (see the crash guard in app.js) one worker is used.
 function _workerCount() {
   const cores = navigator.hardwareConcurrency || 4;
-  return Math.max(1, Math.min(_encoderOnGpu ? 3 : 6, Math.floor(cores / 2)));   // decode-only workers are cheap
+  const phone = (window.matchMedia && matchMedia('(pointer: coarse)').matches) || /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+  const lowMemory = (navigator.deviceMemory && navigator.deviceMemory <= 4) || (window.CT && CT.pref.get('lowmem', '') === '1');
+  const cap = lowMemory ? 1 : phone ? 2 : _encoderOnGpu ? 3 : 6;
+  return Math.max(1, Math.min(cap, Math.floor(cores / 2)));
 }
 
 // Started when a scanned page needs OCR and stopped once all pages are read, so the memory is given back.
@@ -172,21 +248,6 @@ function stopOcrPool() {
   _pool = null;
 }
 
-async function _createDecoder(opts) {
-  const pairs = [[ONNX_MODELS.decoderInitW8, ONNX_MODELS.decoderStepW8], [ONNX_MODELS.decoderInit, ONNX_MODELS.decoderStep]];
-  for (const [initUrl, stepUrl] of pairs) {
-    try {
-      const [init, step] = await Promise.all([_modelSession(initUrl, opts), _modelSession(stepUrl, opts)]);
-      _decoderUrls = { init: initUrl, step: stepUrl };
-      return { init, step };
-    } catch (e) {
-      console.warn('[ONNX] cached decoder unavailable from ' + stepUrl + ':', e);
-    }
-  }
-  _decoderUrls = { plain: ONNX_MODELS.decoder };
-  return { plain: await _modelSession(ONNX_MODELS.decoder, opts) };
-}
-
 async function initOnnxOCR(progressCb) {
   if (onnxReady || onnxLoading) return onnxReady;
   onnxLoading = true;
@@ -199,20 +260,18 @@ async function initOnnxOCR(progressCb) {
     ort.env.wasm.wasmPaths = 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.22.0/dist/';
 
     const gpu = await _hasGpu();
-    const opts = { executionProviders: ['wasm'] };
-
     if (progressCb) progressCb(`Loading ONNX models (${gpu ? '41' : '43'} MB first time)...`);
 
-    // Download everything in parallel (it fills the cache), then create the sessions one after another: the first
-    // sessions initialise the WASM runtime, and doing that from several places at once fails ("multiple calls to initWasm()").
+    // Download everything in parallel (it fills the store). Sessions are opened later, and only where they are needed.
     const candidates = [ONNX_MODELS.vocab, ONNX_MODELS.decoderInitW8, ONNX_MODELS.decoderStepW8,
       gpu ? ONNX_MODELS.encoderGpuW8 : ONNX_MODELS.encoderInt8];
-    await Promise.all(candidates.map(u => _loadCached(u).catch(() => null)));
+    await Promise.all(candidates.map(u => _loadCached(u).catch(e => { if (e.network) throw e; return null; })));   // a missing file is handled by the fallbacks; a dead network is not
 
     if (progressCb) progressCb('Creating ONNX sessions...');
 
-    _dec = await _createDecoder(opts);
-    _encSession = await _createEncoder(gpu);
+    _decoderUrls = await _pickDecoderUrls();
+    _encSession = gpu ? await _createGpuEncoder() : null;       // WebGPU needs its session on the page thread
+    if (!_encoderOnGpu) _encoderUrl = await _firstAvailable([ONNX_MODELS.encoderInt8, ONNX_MODELS.encoder]);
     const vocabResp = await (await _loadCached(ONNX_MODELS.vocab)).text();
 
     _vocab = vocabResp.split('\n').filter(l => l.length > 0 || l === '');
@@ -226,6 +285,7 @@ async function initOnnxOCR(progressCb) {
   } catch (e) {
     console.error('[ONNX] Init failed:', e);
     onnxReady = false;
+    window.CT && (CT.state.initError = e);
     return false;
   } finally {
     onnxLoading = false;
@@ -626,11 +686,13 @@ async function _recognizeBox(canvas, box) {
     const memory = await _gpuEncode(imgTensor);
     imgTensor.dispose();
     if (_pool) return _pool.decodeMemory(new Float32Array(memory.data), [...memory.dims]);   // onnxruntime owns memory.data
+    await _ensureMainSessions();
     const result = await vietocrDecodeMemory(_dec, memory, _vocab, yieldToMain);
     memory.dispose();
     return result;
   }
   if (_pool) return _pool.recognize(imgTensor);   // the tensor's buffer is handed to a worker
+  await _ensureMainSessions();
   const result = await vietocrDecode(_encSession, _dec, imgTensor, _vocab, yieldToMain);
   imgTensor.dispose();
   return result;

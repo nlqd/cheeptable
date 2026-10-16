@@ -101,5 +101,39 @@ none = js("!!document.querySelector('.nonehelp')") == "true"
 dis = js("!!document.getElementById('dlXlsx') && document.getElementById('dlXlsx').disabled") == "true"
 print("INFO a prose page: finished=%s, shows 'no table' state=%s, download disabled=%s, rows shown=%s" % (ok, none, dis, js("document.querySelectorAll('table.grid tbody tr:not([hidden])').length")))
 
-check("no uncaught page errors in the last run", js("window.__errors.length === 0") == "true", js("JSON.stringify(window.__errors)"))
+
+# 8. paste and drop anywhere on the page start a job
+fresh()
+js("(fetch('sample.pdf').then(r => r.blob()).then(b => { const dt = new DataTransfer(); dt.items.add(new File([b], 'pasted.pdf', {type: 'application/pdf'})); document.dispatchEvent(new ClipboardEvent('paste', {clipboardData: dt, bubbles: true, cancelable: true})); }), 1)")
+check("pasting a file starts a job", wait("document.body.dataset.stage === 'progress' || document.body.dataset.stage === 'result'", 20))
+fresh()
+js("(fetch('sample.pdf').then(r => r.blob()).then(b => { const dt = new DataTransfer(); dt.items.add(new File([b], 'dropped.pdf', {type: 'application/pdf'})); document.body.dispatchEvent(new DragEvent('dragenter', {dataTransfer: dt, bubbles: true})); document.body.dispatchEvent(new DragEvent('drop', {dataTransfer: dt, bubbles: true, cancelable: true})); }), 1)")
+check("dropping a file anywhere on the page starts a job", wait("document.body.dataset.stage === 'progress' || document.body.dataset.stage === 'result'", 20))
+
+# 9. low-memory mode: one worker; a killed tab turns it on by itself
+fresh()
+js("(localStorage.setItem('ct.lowmem', '1'), 1)")
+rodney("open", url); rodney("waitload"); time.sleep(0.8)
+check("the low-memory switch shows its stored state", js("document.getElementById('lowmem').checked") == "true")
+js("(window.alert = () => {}, 1)")
+rodney("file", "#fileInput", fx + "/p345.pdf")
+started = wait("typeof _pool !== 'undefined' && _pool !== null", 120)
+workers = js("_pool ? _pool.size : 0")
+check("low-memory mode uses one worker", started and workers == "1", "workers: %s" % workers)
+rodney("click", "#cancelBtn"); time.sleep(1)
+js("(CT.pref.set = () => {}, localStorage.setItem('ct.lowmem', ''), localStorage.setItem('ct.running', String(Date.now())), 1)")   # a real kill leaves the flag behind; closing the page normally clears it
+rodney("open", url); rodney("waitload"); time.sleep(0.8)
+check("a tab killed mid-job is noticed on the next visit", "đóng đột ngột" in js("document.getElementById('notice').textContent") and js("localStorage.getItem('ct.lowmem')") == "1")
+js("(localStorage.setItem('ct.lowmem', ''), 1)")
+
+# 10. after a job the models are on the device, and the start page says so
+fresh()
+rodney("file", "#fileInput", fx + "/page3.pdf")
+wait(RESULT_READY, 200)
+no_errors = js("window.__errors.length === 0") == "true"; err_detail = js("JSON.stringify(window.__errors)")
+rodney("open", url); rodney("waitload"); time.sleep(1.5)
+note = js("document.getElementById('modelNote').textContent")
+check("the start page says the models are already on the device", "đã có sẵn" in note, note[:80])
+
+check("no uncaught page errors in the last full job", no_errors, err_detail)
 print("%d of %d checks passed" % (sum(results), len(results)))

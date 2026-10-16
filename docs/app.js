@@ -29,7 +29,11 @@ CT.addStrings({
   modeSimpleHint: 'Chọn tệp, nhận bảng, tải Excel', modeGuidedHint: 'Bốn bước, có tiến độ chi tiết từng trang',
   modeWorkbenchHint: 'Trang gốc bên cạnh bảng, bấm ô để xem đúng chỗ',
   modeLabel: 'Cách hiển thị', langLabel: 'Ngôn ngữ',
-  sampleBtn: 'Thử với tệp mẫu', dropMain: 'Kéo tệp PDF hoặc ảnh vào đây', dropOr: 'hoặc bấm để chọn tệp',
+  sampleBtn: 'Thử với tệp mẫu', sampleLink: 'Chưa có tệp? Thử với tệp mẫu', dropMain: 'Kéo tệp PDF hoặc ảnh vào đây', dropOr: 'hoặc bấm để chọn tệp',
+  chooseFile: 'Chọn tệp', formats: 'PDF, JPG, PNG · tối đa 50 MB · hoặc dán ảnh bằng Ctrl+V', dropHere: 'Thả tệp để bắt đầu', optionsLabel: 'Tùy chọn',
+  lowmemLabel: 'Tiết kiệm bộ nhớ (bật khi điện thoại bị treo hoặc tải lại giữa chừng)',
+  cachedNote: 'Mô hình nhận dạng đã có sẵn trên thiết bị này: bắt đầu ngay, không cần tải lại.',
+  crashed: 'Lần trước trang bị đóng đột ngột, có thể do thiếu bộ nhớ. Đã bật chế độ tiết kiệm bộ nhớ (chậm hơn nhưng ổn định hơn); tắt lại trong mục Tùy chọn.',
   privacy: 'Tệp không rời khỏi máy bạn: mọi xử lý diễn ra ngay trong trình duyệt.',
   sizeNote: 'Lần đầu cần tải khoảng {mb} MB mô hình nhận dạng (một lần, được lưu trong trình duyệt).',
   badType: 'Chỉ nhận tệp PDF hoặc ảnh (JPG, PNG, WebP). Tệp “{name}” không phải loại đó.',
@@ -45,7 +49,11 @@ CT.addStrings({
   modeSimpleHint: 'Pick a file, get the table, download Excel', modeGuidedHint: 'Four steps with detailed per-page progress',
   modeWorkbenchHint: 'Source page beside the table; click a cell to see it in place',
   modeLabel: 'Layout', langLabel: 'Language',
-  sampleBtn: 'Try the sample file', dropMain: 'Drop a PDF or an image here', dropOr: 'or click to choose a file',
+  sampleBtn: 'Try the sample file', sampleLink: 'No file yet? Try the sample', dropMain: 'Drop a PDF or an image here', dropOr: 'or click to choose a file',
+  chooseFile: 'Choose file', formats: 'PDF, JPG, PNG · up to 50 MB · or paste an image with Ctrl+V', dropHere: 'Drop the file to start', optionsLabel: 'Options',
+  lowmemLabel: 'Save memory (turn on if the phone freezes or reloads in the middle)',
+  cachedNote: 'The recognition models are already on this device: it starts at once, nothing to download.',
+  crashed: 'The page closed suddenly last time, probably for lack of memory. Low-memory mode is on (slower but steadier); switch it off under Options.',
   privacy: 'Your file never leaves your computer: everything is processed in the browser.',
   sizeNote: 'The first visit downloads about {mb} MB of recognition models (once; they stay in the browser).',
   badType: 'Only PDF files or images (JPG, PNG, WebP) are accepted. “{name}” is neither.',
@@ -59,14 +67,25 @@ const $ = id => document.getElementById(id);
 
 // ── Loading code and styles on demand ──
 CT.loaded = {};
-CT.loadScript = (url, ordered = false) => CT.loaded[url] || (CT.loaded[url] = new Promise((ok, fail) => {
-  const s = document.createElement('script');
-  s.src = url;
-  s.async = !ordered;        // ordered scripts download in parallel but run in insertion order
-  s.onload = ok;
-  s.onerror = () => { delete CT.loaded[url]; fail(new Error('Could not load ' + url)); };
-  document.head.appendChild(s);
-}));
+CT.loadScript = (url, ordered = false) => CT.loaded[url] || (CT.loaded[url] = (async () => {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      await new Promise((ok, fail) => {
+        const s = document.createElement('script');
+        s.src = url;
+        s.async = !ordered;        // ordered scripts download in parallel but run in insertion order
+        s.onload = () => ok();
+        s.onerror = () => { s.remove(); fail(new Error('Could not load ' + url)); };
+        document.head.appendChild(s);
+      });
+      return;
+    } catch (e) {
+      if (attempt >= 3) { delete CT.loaded[url]; e.network = true; throw e; }
+      CT.emit('engine:retry', { url, attempt });
+      await new Promise(r => setTimeout(r, 800 * attempt));
+    }
+  }
+})());
 CT.loadCSS = (href) => CT.loaded[href] || (CT.loaded[href] = new Promise((ok, fail) => {
   const l = document.createElement('link');
   l.rel = 'stylesheet'; l.href = href; l.onload = ok; l.onerror = () => fail(new Error('Could not load ' + href));
@@ -141,6 +160,7 @@ CT.validate = (file) => {
 };
 
 CT.start = async (files) => {
+  CT.lastFile = [...(files || [])][0] || CT.lastFile;
   const list = [...(files || [])];
   const file = list[0];
   const problem = CT.validate(file);
@@ -156,10 +176,13 @@ CT.start = async (files) => {
   } catch (e) {
     if (!CT.state.cancelled) {
       console.error(e);
-      CT.emit('job:error', { message: e.message });
+      CT.emit('job:error', { message: e.message, network: !!e.network });
     }
   }
 };
+
+// Run the same file again. Models already downloaded (even partly) are not fetched twice.
+CT.retry = () => { if (CT.lastFile) { CT.state.cancelled = false; CT.start([CT.lastFile]); } };
 
 CT.showStage = (name) => {
   ['start', 'progress', 'result'].forEach(s => { const el = $('stage-' + s); if (el) el.hidden = s !== name; });
@@ -188,3 +211,47 @@ input.addEventListener('change', e => CT.start(e.target.files));
 $('sampleBtn').addEventListener('click', CT.loadSample);
 document.querySelectorAll('input[name="mode"]').forEach(r => r.addEventListener('change', () => CT.setMode(r.value)));
 document.querySelectorAll('[data-lang-btn]').forEach(b => b.addEventListener('click', () => CT.setLang(b.dataset.langBtn)));
+
+// ── A tab killed in the middle of a job (usually for lack of memory on a phone) leaves no trace but this flag ──
+(() => {
+  const was = Number(CT.pref.get('running', '0'));
+  if (was && Date.now() - was < 6 * 3600e3) { CT.pref.set('lowmem', '1'); CT.say(CT.t('crashed'), 'info'); }
+  CT.pref.set('running', '');
+  addEventListener('pagehide', () => CT.pref.set('running', ''));            // closing or leaving normally is not a crash
+  ['job:done', 'job:cancel', 'job:error'].forEach(ev => CT.on(ev, () => CT.pref.set('running', '')));
+  CT.on('job:begin', () => CT.pref.set('running', String(Date.now())));
+})();
+
+const low = $('lowmem');
+low.checked = CT.pref.get('lowmem', '') === '1';
+low.addEventListener('change', () => CT.pref.set('lowmem', low.checked ? '1' : ''));
+
+// ── Are the models already here? Say so: it is what the visitor wants to know on a phone ──
+CT.checkModels = async () => {
+  try {
+    const kinds = await CTStore.cachedKinds();
+    if (kinds.encoder && kinds.decoder) { const n = $('modelNote'); n.dataset.i18n = 'cachedNote'; n.textContent = CT.t('cachedNote'); }
+  } catch (e) { /* the default note stays */ }
+};
+CT.checkModels();
+CT.on('lang', CT.checkModels);
+
+// ── Drop anywhere on the page, or paste a screenshot ──
+let depth = 0;
+const dragging = (on) => { document.body.classList.toggle('dragging', on); document.body.dataset.drop = CT.t('dropHere'); };
+const hasFiles = (e) => e.dataTransfer && [...(e.dataTransfer.types || [])].includes('Files');
+addEventListener('dragenter', e => { if (hasFiles(e) && document.body.dataset.stage === 'start') { depth++; dragging(true); } });
+addEventListener('dragleave', e => { if (hasFiles(e) && --depth <= 0) { depth = 0; dragging(false); } });
+addEventListener('dragover', e => { if (hasFiles(e)) e.preventDefault(); });
+addEventListener('drop', e => {
+  if (!hasFiles(e)) return;
+  e.preventDefault(); depth = 0; dragging(false);
+  if (document.body.dataset.stage === 'start' && !drop.contains(e.target)) CT.start(e.dataTransfer.files);
+});
+addEventListener('paste', e => {
+  const files = e.clipboardData && e.clipboardData.files;
+  if (files && files.length && document.body.dataset.stage === 'start') { e.preventDefault(); CT.start(files); }
+});
+
+// Ask the browser to keep the models when it is short of space (the visitor has just chosen a file, so this is a user gesture)
+CT.on('job:begin', () => { if (window.CTStore) CTStore.persist().then(p => { CT.state.persisted = p; }); });
