@@ -45,36 +45,63 @@ def strip_marks(s):
 
 
 def page_segments(page):
-    """Text segments from character boxes: a new segment starts at a line break, when the next character is not on the same
-    line, or after a gap wider than 1.2 character heights (a cell or column gap; a justified word gap is below 1). Returns [(text, (l, b, r, t))] in PDF points."""
+    """Text segments from character boxes. Characters are first grouped into lines by position (a PDF may write them in any
+    order, for example cell by cell), then each line is read left to right and split at gaps wider than 1.2 character heights
+    (a cell or column gap; a justified word gap is below 1). A visible gap of 0.25 heights or more is a space even where the
+    PDF has no space character. Returns [(text, (l, b, r, t))] in PDF points."""
     tp = page.get_textpage()
-    n = tp.count_chars()
-    segs, cur = [], None
-    for i in range(n):
+    ox, oy = page.get_cropbox()[:2]          # text coordinates are relative to the media box; the render starts at the crop box
+    rot = page.get_rotation() % 360          # a rotated page renders sideways to its text coordinates
+    cw, ch_ = page.get_cropbox()[2] - ox, page.get_cropbox()[3] - oy
+
+    def upright(l, b, r, t):
+        if rot == 90:      # clockwise: (x, y) -> (y, W - x)
+            return b, cw - r, t, cw - l
+        if rot == 270:     # counter-clockwise: (x, y) -> (H - y, x)
+            return ch_ - t, l, ch_ - b, r
+        if rot == 180:
+            return cw - r, ch_ - t, cw - l, ch_ - b
+        return l, b, r, t
+
+    chars = []
+    for i in range(tp.count_chars()):
         ch = tp.get_text_range(i, 1)
-        if len(ch) != 1:
-            continue
-        l, b, r, t = tp.get_charbox(i)
-        if ch in "\r\n" or r <= l or t <= b:
-            if ch in "\r\n" and cur:
-                segs.append(cur); cur = None
-            continue
+        l, b, r, t = tp.get_charbox(i, loose=True)      # font-sized box: same height for every glyph on a line
+        if len(ch) == 1 and r > l and t > b and ch not in "\r\n":
+            chars.append((ch, *upright(l - ox, b - oy, r - ox, t - oy)))
+    chars.sort(key=lambda c: -(c[2] + c[4]) / 2)             # top to bottom by vertical centre
+    lines, cur = [], []
+    for c in chars:
         if cur:
-            cl, cb, cr, ct, text = cur
-            h = max(ct - cb, 1e-3)
-            same_line = min(t, ct) - max(b, cb) > 0.5 * min(t - b, h)
-            if not same_line or l - cr > 1.2 * h or l < cl - h:
-                segs.append(cur); cur = None
-        if cur is None:
-            cur = [l, b, r, t, ch]
-        else:
-            # some PDFs have no space characters and place words by position: a visible gap is a space
-            if l - cur[2] > 0.25 * max(cur[3] - cur[1], 1e-3) and not cur[4].endswith(" ") and ch != " ":
-                cur[4] += " "
-            cur[0], cur[1], cur[2], cur[3] = min(cur[0], l), min(cur[1], b), max(cur[2], r), max(cur[3], t)
-            cur[4] += ch
+            mid = sum((x[2] + x[4]) / 2 for x in cur) / len(cur)
+            h = max(sorted(x[4] - x[2] for x in cur)[len(cur) // 2], 1e-3)
+            if abs((c[2] + c[4]) / 2 - mid) > 0.35 * h:
+                lines.append(cur); cur = []
+        cur.append(c)
     if cur:
-        segs.append(cur)
+        lines.append(cur)
+
+    segs = []
+    for line in lines:
+        line.sort(key=lambda c: c[1])
+        h = max(sorted(x[4] - x[2] for x in line)[len(line) // 2], 1e-3)
+        seg, prev_r, pending = None, None, False
+        for ch, l, b, r, t in line:
+            if ch == " ":
+                pending = True
+                continue
+            if seg is not None and l - prev_r > 1.2 * h:
+                segs.append(seg); seg = None
+            if seg is None:
+                seg = [l, b, r, t, ch]
+            else:
+                if pending or l - prev_r > 0.25 * h:
+                    seg[4] += " "
+                seg[0], seg[1], seg[2], seg[3] = min(seg[0], l), min(seg[1], b), max(seg[2], r), max(seg[3], t)
+                seg[4] += ch
+            prev_r, pending = max(prev_r or r, r), False
+        if seg is not None:
+            segs.append(seg)
     return [(text, (l, b, r, t)) for l, b, r, t, text in segs]
 
 

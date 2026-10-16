@@ -104,19 +104,44 @@ Corpus: 20 public Vietnamese PDFs sourced from the web (`benchmark/manifest.json
 
 | condition | CER | 95% CI over documents | space-free CER | exact lines |
 |---|---|---|---|---|
-| clean render (200 dpi) | 0.0157 | 0.0109 - 0.0211 | 0.0106 | 0.70 |
-| scan-like (0.6 deg, blur, noise, JPEG q40) | 0.0131 | 0.0090 - 0.0177 | 0.0083 | 0.75 |
-| half resolution | 0.0166 | 0.0115 - 0.0226 | 0.0117 | 0.72 |
-| rough (1.5 deg, blur 1.2, noise 15, JPEG q30) | 0.0360 | 0.0252 - 0.0480 | 0.0344 | 0.61 |
+| clean render (200 dpi) | 0.0213 | 0.0119 - 0.0330 | 0.0130 | 0.70 |
+| scan-like (0.6 deg, blur, noise, JPEG q40) | 0.0181 | 0.0093 - 0.0299 | 0.0104 | 0.77 |
+| half resolution | 0.0216 | 0.0124 - 0.0330 | 0.0131 | 0.74 |
+| rough (1.5 deg, blur 1.2, noise 15, JPEG q30) | 0.0429 | 0.0255 - 0.0656 | 0.0385 | 0.63 |
 
-- Line reading on generic printed text is about 1.5% CER, already good. It is not where the generality risk is.
+(1,089 lines. An earlier run of this table, 0.0157 clean, was taken before two bugs in the reference extraction were fixed: pages rotated 90 degrees in 7 of 110 pages of one document, and characters written out of order. Numbers in this version supersede it.)
+
+- Line reading on generic printed text is about 2% CER, already good. It is not where the generality risk is.
 - Part of the remaining 1.5% is reference noise, not recogniser error: a legacy font encodes `Mục lục` as `Môc lôc`, one PDF has no space characters (`Chiphí`), and small-caps headings differ in case. Treat the figures as upper bounds.
 - Benchmark pitfalls found while building it (each inflated the error until fixed): fill-in dots `.....`; PDF text rectangles that cut words in half; missing space characters; table rows or label-plus-text with wide gaps counted as one line. The reference extraction now uses character boxes, inferred spaces and gap splitting.
 - Scan-like degradation scored no worse than clean (blur helps thin serif fonts at 200 dpi); the difference is inside the interval.
 
 **Real scans** (`scan_survey.py`, 24 pages from the 8 scanned documents): estimated skew was 0 to 0.4 degrees on most pages, -0.71 degrees on one copier scan, where the ruled-grid finder lost every row (`5x0`), which is the half-degree cliff from section 2. Many financial-statement scan pages have **no ruled grid at all** (`0x2`, `0x3`, `0x8`): those pages take the text-detector path. Borderless tables are therefore the largest coverage gap, ahead of skew.
 
-Revised order of work: (1) benchmark with truth for borderless tables (born-digital twins of these financial statements, table cells from the text layer), (2) borderless separator detector + invariants, (3) deskew, (4) contrast/blur normalisation, (5) digit robustness, (6) fine-tuning.
+## 8. Borderless tables and download size (measured)
+
+**Borderless twins** (`make_table_twins.py`, `table_probe.js`, `table_score.py`): 20 pages of born-digital financial statements and statistical tables rendered to image-only PDFs, truth = text-layer cells with positions (1,765 cells; hidden overlapping text dropped; page rotation handled). A truth cell counts as "whole" when the reader produced boxes inside it, "merged" when one wide box swallowed it, "missing" otherwise. Method tested: the existing text-detector path.
+
+| twin condition | whole | merged | missing | exact | CER |
+|---|---|---|---|---|---|
+| clean | 95.1% | 0.2% | 4.7% | 91.7% | 0.024 |
+| scan-like | 93.9% | 0.1% | 6.0% | 88.5% | 0.069 |
+| half resolution | 95.0% | 0.6% | 4.4% | 86.3% | 0.020 |
+| rough | 88.6% | 0.0% | 11.4% | 72.2% | 0.243 |
+
+- Reading borderless tables already works on clean and scan-like pages; a new separator method is not needed for that. Under "rough" degradation the detector misses 24% of text cells (numbers hold up: 7% missing), which is where the loss is.
+- Not yet measured: whether rows and columns are assembled correctly from those boxes (structure), which is what a user sees.
+
+**Download size** (cold first visit on the live site, resource timing): CPU path 60.8 MB, GPU path 87.9 MB. Models are 52 MB and 80 MB of that; ONNX Runtime WASM 4.2 MB, OpenCV.js 3.6 MB, everything else under 1 MB.
+- gzip saves 21% on the int8 encoder and under 13% on fp16-storage files, so weight precision is the lever, not compression.
+- Weight-only quantization, simulated (`fakequant.py`) on 576 lines, clean / rough description error: production 0.0220 / 0.0463; int8 per row: decoder 0.0218 / 0.0464, encoder 0.0219 / 0.0465, both 0.0218 / 0.0472; int6 per row: decoder 0.0211 / 0.0470 but encoder 0.0247 / 0.0428 and 8-20% of lines change; int4 in groups of 32: broken without calibration (decoder error 1.18, encoder 0.085). Stopped at int8.
+- Real int8-weight files (`weight_only.py`: int8 + per-row scale, Cast and Mul folded at load, fp32 compute): encoder 55 -> 28 MB, decoder step 18 -> 9.7 MB, decoder init 1.6 -> 0.8 MB; identical to the simulation. Decoder step time is unchanged (1.38 vs 1.31 ms) and load is faster.
+- Full contract with them: GPU 57 s, 472 rows, numbers 0.962, description error 0.030; CPU 101-103 s, numbers 0.964, error 0.030 (production: 0.966 / 0.029 and 0.960 / 0.031).
+- The text detector (2.4 MB) now loads on first use; the ruled contract never loads it.
+- Expected cold download: GPU about 50 MB (from 88), CPU about 51 MB (from 61); models alone 41 and 43 MB. The CPU encoder stays the static int8 model (29.8 MB) because it is faster than an fp32-compute encoder.
+- Remaining ideas, not done: OpenCV.js replaced by plain-JS routines (3.6 MB; a rewrite of grid and detector post-processing), gzip of the int8 files (about 6 MB more, needs DecompressionStream), calibrated int4 (GPTQ-style).
+
+Revised order of work: (1) structure of borderless tables from detector boxes, with a metric (rows and columns recovered), (2) detector robustness under degradation (missing text cells at "rough"), (3) deskew for ruled tables, (4) contrast and blur normalisation, (5) digit robustness, (6) fine-tuning.
 
 ## 6. Decisions that need the owner
 - Þ mapping option: **declined by the owner (2026-10-16)**; the diameter sign is left to fine-tuning (step 6).
