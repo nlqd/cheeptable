@@ -8,8 +8,8 @@ a = sys.argv
 url, pdf = a[1], a[2]
 port = a[a.index("--port") + 1] if "--port" in a else "9333"
 BASE = "http://localhost:8080"
-FILES = ["encoder_int8.onnx", "decoder_init_w8.onnx", "decoder_step_w8.onnx"]
-MODELS = BASE + "/hillclimb/models_out/vietocr/"
+HOSTED = "/home/dungngo/experiments/vietocr/hillclimb/size/hosted/vietocr/cheep-v1/"
+FILES = ["model.bin", "enc.skel.onnx", "encq.skel.onnx", "init.skel.onnx", "step.skel.onnx"]    # the files a CPU visit fetches
 
 
 def rodney(*args, timeout=300):
@@ -32,7 +32,7 @@ def fresh():
     rodney("open", url); rodney("waitload"); time.sleep(0.8)
     js("(window.alert = () => {}, window.__retries = 0, CT.on('model:retry', () => window.__retries++), 1)")
     # the engine loads on demand, so its settings exist only after it has loaded; then point the CPU-path models at the flaky route
-    js("(window.__ready = false, CT.preloadEngine().then(() => { ONNX_MODELS.encoderInt8 = '%s/flaky/hillclimb/models_out/vietocr/encoder_int8.onnx'; ONNX_MODELS.decoderInitW8 = '%s/flaky/hillclimb/models_out/vietocr/decoder_init_w8.onnx'; ONNX_MODELS.decoderStepW8 = '%s/flaky/hillclimb/models_out/vietocr/decoder_step_w8.onnx'; window.__ready = true; }), 1)" % (BASE, BASE, BASE))
+    js("(window.__ready = false, CT.preloadEngine().then(() => { ONNX_MODELS.compact = '%s/flaky/hillclimb/size/hosted/vietocr/cheep-v1'; window.__ready = true; }), 1)" % BASE)
     for _ in range(60):
         if js("window.__ready") == "true":
             break
@@ -49,7 +49,7 @@ def wait(expr, seconds):
 
 
 rodney("connect", "localhost:" + port)
-sizes = {f: len(open("/home/dungngo/experiments/vietocr/hillclimb/models_out/vietocr/" + f, "rb").read()) for f in FILES}
+sizes = {f: len(open(HOSTED + f, "rb").read()) for f in FILES}
 total = sum(sizes.values())
 ok_all = []
 
@@ -79,12 +79,12 @@ done = wait("!!(CT.state && CT.state.done) && !document.getElementById('stage-re
 stats = ctl()
 print("  after the network healed, Try again finished the job: %s | bytes served in the second run %.1f MB" % (done, sum(stats["sent"].values()) / 1e6))
 ok_all.append(done)
-print("Part 3: the tab is killed after about 10 MB of a slow download, then the page is opened again")
-ctl(reset=1, cut=0, times=0, slow=25)
+print("Part 3: the tab is killed after about 4 MB of a slow download, then the page is opened again")
+ctl(reset=1, cut=0, times=0, slow=60)
 fresh()
 js("(window.__got = 0, CT.on('model:progress', e => { if (!e.cached) window.__got = Math.max(window.__got, e.loaded); }), window.__sum = {}, CT.on('model:progress', e => { window.__sum[e.url] = e.loaded; }), 1)")
 rodney("file", "#fileInput", pdf)
-wait("Object.values(window.__sum).reduce((a, b) => a + b, 0) > 10000000", 60)
+wait("Object.values(window.__sum).reduce((a, b) => a + b, 0) > 4000000", 60)
 saved_mb = js("Object.values(window.__sum).reduce((a, b) => a + b, 0) / 1e6")
 rodney("open", "about:blank")                       # the page is gone, as if the browser had killed it
 ctl(reset=1, slow=0)

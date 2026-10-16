@@ -1,10 +1,11 @@
 // results-core.js — pure logic behind the results table: header detection, review flags, column types. No DOM, so it is unit-tested in Node.
 'use strict';
 
-// Review thresholds come from measurement on the 473-row contract (VietOCR confidence is bunched between 88 and 94):
-//   description confidence < 90: 12.6% of cells, 95% of them really wrong; 90-92 adds 29% of cells at 83% precision overall
-//   number confidence < 80: 67% really wrong; quantity x price != total: 9 of 9 flagged rows really wrong (64% of rows with a wrong number)
-const REVIEW = { textCheck: 90, textMaybe: 92, numCheck: 80 };
+// Review thresholds come from measurement on the 473-row contract (the recogniser's confidence is bunched between 88 and 95;
+// hillclimb/size/flags_calib.py reruns this for a new model):
+//   description confidence < 91: 16.5% of cells, 96% of them really wrong; 91-93 adds 23.5% of cells at 87% precision overall
+//   number confidence < 80: about half really wrong; quantity x price != total: every flagged row really wrong in the earlier measurement
+const REVIEW = { textCheck: 91, textMaybe: 93, numCheck: 80 };
 
 const rcPlain = (s) => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/đ/g, 'd').replace(/Đ/g, 'D').toLowerCase().replace(/\s+/g, ' ').trim();
 const rcVal = (c) => (c && typeof c === 'object') ? String(c.value ?? '') : String(c ?? '');

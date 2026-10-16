@@ -58,12 +58,12 @@ const CTStore = (() => {
     savePart(url, index, bytes) { return run('parts', 'readwrite', s => s.put(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.length), url + '|' + pad(index))).catch(() => {}); },
     saveMeta(url, meta) { return run('parts', 'readwrite', s => s.put(meta, url + '|meta')).catch(() => {}); },
     clearParts(url) { return run('parts', 'readwrite', s => s.delete(IDBKeyRange.bound(url + '|', url + '|￿'))).catch(() => {}); },
-    // Which kinds of model are on the device, without knowing their URLs: the page asks this before the engine is loaded.
+    // Whether the recogniser is on the device, without knowing its host: the page asks this before the engine is loaded.
     async cachedKinds() {
       const urls = [];
       try { urls.push(...(await (await caches.open(CACHE)).keys()).map(r => r.url)); } catch (e) { /* none */ }
       try { urls.push(...(await run('blobs', 'readonly', s => s.getAllKeys())) || []); } catch (e) { /* none */ }
-      return { encoder: urls.some(u => /encoder/.test(u)), decoder: urls.some(u => /decoder_step/.test(u)) };
+      return { model: urls.some(u => /vietocr\/cheep-[^/]*\/model\.bin/.test(u)) };
     },
     async persist() { try { return navigator.storage && navigator.storage.persist ? await navigator.storage.persist() : false; } catch (e) { return false; } },
     async persisted() { try { return navigator.storage && navigator.storage.persisted ? await navigator.storage.persisted() : false; } catch (e) { return false; } },
