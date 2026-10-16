@@ -33,6 +33,8 @@ rodney("reload", "--hard")
 time.sleep(5)
 if os.environ.get("INT8_LOCAL"):
     js("ONNX_MODELS.encoderInt8 = '/hillclimb/models_out/vietocr/encoder_int8.onnx'; 1")
+if os.environ.get("FAKE_CORES"):
+    js("(Object.defineProperty(navigator, 'hardwareConcurrency', {get: () => %s}), 1)" % os.environ["FAKE_CORES"])
 if MINCONF:
     js('window.__minConf = ' + MINCONF)
 if os.environ.get("WASM"):
