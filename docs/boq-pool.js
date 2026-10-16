@@ -24,10 +24,16 @@ class OcrPool {
     return new OcrPool(workers);
   }
 
-  recognize(tensor) {
+  // An image tensor: the worker encodes and decodes it.
+  recognize(tensor) { return this._submit('image', tensor.data, tensor.dims); }
+
+  // An encoder output computed elsewhere (the GPU): the worker only decodes it. The buffer is handed over.
+  decodeMemory(data, dims) { return this._submit('memory', data, dims); }
+
+  _submit(kind, data, dims) {
     return new Promise((resolve, reject) => {
       const id = this.nextId++;
-      this.queue.push({ id, data: tensor.data, dims: tensor.dims, resolve, reject });
+      this.queue.push({ id, kind, data, dims, resolve, reject });
       this._dispatch();
     });
   }
@@ -37,7 +43,7 @@ class OcrPool {
       const w = this.idle.pop();
       const job = this.queue.shift();
       this.pending.set(job.id, { job, worker: w });
-      w.postMessage({ type: 'read', id: job.id, data: job.data, dims: job.dims }, [job.data.buffer]);
+      w.postMessage({ type: 'read', kind: job.kind, id: job.id, data: job.data, dims: job.dims }, [job.data.buffer]);
     }
   }
 

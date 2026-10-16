@@ -11,6 +11,8 @@ const ONNX_MODELS = {
   // (description error 0.065, numbers 0.945 vs 0.947). Dynamic int8 would need ConvInteger, which onnxruntime-web lacks.
   // Runs on the WASM backend only; WebGPU keeps the fp16 encoder.
   encoderInt8: `${ONNX_MODEL_BASE}/vietocr/encoder_int8.onnx`,
+  // 55 MB, for WebGPU: fp16 weights, fp32 compute (cast folded at load). About 8 ms per line against 80-340 ms on the CPU.
+  encoderGpu: `${ONNX_MODEL_BASE}/vietocr/encoder_fp16w.onnx`,
   decoder: `${ONNX_MODEL_BASE}/vietocr/decoder_fp16.onnx`,
   // Cached decoder for the WASM backend (two graphs, 19.6 MB together, same output as the plain one): weights are
   // stored as fp16 and cast to fp32 when the session loads, which is faster on CPU than computing in fp16.
@@ -43,8 +45,8 @@ let _dec = null;         // { plain } or { init, step } sessions, see boq-decode
 let _decoderUrls = null; // the same, as URLs, for the workers
 let _vocab = null;       // array of chars, index = token id
 let _pool = null;        // OcrPool of single-threaded workers (WASM backend only), or null
-let _backend = null;     // 'webgpu' or 'wasm'
-let _encoderUrl = null;  // the encoder model actually in use, so the workers load the same one
+let _encoderUrl = null;  // the CPU encoder model in use, so the workers load the same one
+let _encoderOnGpu = false; // true: the page encodes on WebGPU and the workers only decode
 let onnxReady = false;
 let onnxLoading = false;
 
@@ -68,32 +70,51 @@ async function _loadCached(url) {
   }
 }
 
-// The fp16 models need an adapter with shader-f16. `navigator.gpu` alone is not enough: a machine with
-// WebGPU but no f16 shaders created sessions fine and then decoded nothing but <pad> tokens.
-async function _pickBackend() {
+// WebGPU runs the encoder when the browser has an adapter. That model stores fp16 weights and computes in fp32, so
+// it needs no shader-f16 (the fp16 models returned only <pad> tokens on an adapter without it). The decoder always
+// runs on the CPU in WASM: with its key/value cache it is cheap, and a GPU round trip per token is not.
+async function _hasGpu() {
   try {
-    const adapter = navigator.gpu ? await navigator.gpu.requestAdapter() : null;
-    return adapter && adapter.features.has('shader-f16') ? 'webgpu' : 'wasm';
+    return !!(navigator.gpu && await navigator.gpu.requestAdapter());
   } catch (e) {
-    return 'wasm';
+    return false;
   }
 }
 
-async function _createEncoder(backend, opts) {
-  if (backend === 'wasm') {
+async function _modelSession(url, opts) {
+  const resp = await _loadCached(url);
+  if (!resp.ok) throw new Error(`HTTP ${resp.status} fetching ${url}`);
+  return ort.InferenceSession.create(await resp.arrayBuffer(), opts);
+}
+
+async function _createEncoder(gpu) {
+  if (gpu) {
     try {
-      const resp = await _loadCached(ONNX_MODELS.encoderInt8);
-      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-      const session = await ort.InferenceSession.create(await resp.arrayBuffer(), opts);
-      _encoderUrl = ONNX_MODELS.encoderInt8;
+      const session = await _modelSession(ONNX_MODELS.encoderGpu, { executionProviders: ['webgpu'] });
+      _encoderOnGpu = true;
       return session;
     } catch (e) {
-      console.warn('[ONNX] int8 encoder unavailable, using fp16:', e);
+      console.warn('[ONNX] GPU encoder unavailable, encoding on the CPU:', e);
     }
   }
-  const resp = await _loadCached(ONNX_MODELS.encoder);
+  const wasm = { executionProviders: ['wasm'] };
+  try {
+    const session = await _modelSession(ONNX_MODELS.encoderInt8, wasm);
+    _encoderUrl = ONNX_MODELS.encoderInt8;
+    return session;
+  } catch (e) {
+    console.warn('[ONNX] int8 encoder unavailable, using fp16:', e);
+  }
   _encoderUrl = ONNX_MODELS.encoder;
-  return ort.InferenceSession.create(await resp.arrayBuffer(), opts);
+  return _modelSession(ONNX_MODELS.encoder, wasm);
+}
+
+// One encoder run at a time on the GPU session; reads are queued behind each other.
+let _gpuQueue = Promise.resolve();
+function _gpuEncode(tensor) {
+  const run = _gpuQueue.then(() => _encSession.run({ image: tensor }));
+  _gpuQueue = run.catch(() => {});
+  return run.then(out => out.memory);
 }
 
 // Cell reads are independent, so on the WASM backend (single-threaded in a normal page) several workers read in
@@ -103,16 +124,16 @@ async function _createEncoder(backend, opts) {
 // worker, 165 s with 2, 90 s with 4 and 60 s with 8; past 4 the gain flattens.
 function _workerCount() {
   const cores = navigator.hardwareConcurrency || 4;
-  return Math.max(1, Math.min(6, Math.floor(cores / 2)));
+  return Math.max(1, Math.min(_encoderOnGpu ? 3 : 6, Math.floor(cores / 2)));   // decode-only workers are cheap
 }
 
 // Started when a scanned page needs OCR and stopped once all pages are read, so the memory is given back.
 async function startOcrPool() {
-  if (_pool || _backend !== 'wasm' || typeof OcrPool === 'undefined') return;
+  if (_pool || typeof OcrPool === 'undefined') return;
   try {
     _pool = await OcrPool.create(_workerCount(), {
       wasmPaths: ort.env.wasm.wasmPaths, cacheName: CACHE_NAME,
-      encoderUrl: _encoderUrl, decoder: _decoderUrls, vocab: _vocab,
+      encoderUrl: _encoderOnGpu ? null : _encoderUrl, decoder: _decoderUrls, vocab: _vocab,
     });
   } catch (e) {
     console.warn('[ONNX] worker pool unavailable, reading on the page thread:', e);
@@ -124,23 +145,16 @@ function stopOcrPool() {
   _pool = null;
 }
 
-async function _createDecoder(backend, opts) {
-  const session = async (url) => {
-    const resp = await _loadCached(url);
-    if (!resp.ok) throw new Error(`HTTP ${resp.status} fetching ${url}`);
-    return ort.InferenceSession.create(await resp.arrayBuffer(), opts);
-  };
-  if (backend === 'wasm') {
-    try {
-      const [init, step] = await Promise.all([session(ONNX_MODELS.decoderInit), session(ONNX_MODELS.decoderStep)]);
-      _decoderUrls = { init: ONNX_MODELS.decoderInit, step: ONNX_MODELS.decoderStep };
-      return { init, step };
-    } catch (e) {
-      console.warn('[ONNX] cached decoder unavailable, using the plain one:', e);
-    }
+async function _createDecoder(opts) {
+  try {
+    const [init, step] = await Promise.all([_modelSession(ONNX_MODELS.decoderInit, opts), _modelSession(ONNX_MODELS.decoderStep, opts)]);
+    _decoderUrls = { init: ONNX_MODELS.decoderInit, step: ONNX_MODELS.decoderStep };
+    return { init, step };
+  } catch (e) {
+    console.warn('[ONNX] cached decoder unavailable, using the plain one:', e);
   }
   _decoderUrls = { plain: ONNX_MODELS.decoder };
-  return { plain: await session(ONNX_MODELS.decoder) };
+  return { plain: await _modelSession(ONNX_MODELS.decoder, opts) };
 }
 
 async function initOnnxOCR(progressCb) {
@@ -154,32 +168,30 @@ async function initOnnxOCR(progressCb) {
 
     ort.env.wasm.wasmPaths = 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.22.0/dist/';
 
-    const backend = await _pickBackend();
-    const opts = { executionProviders: [backend, 'wasm'] };
+    const gpu = await _hasGpu();
+    const opts = { executionProviders: ['wasm'] };
 
-    if (progressCb) progressCb(`Loading ONNX models (${backend === 'wasm' ? '52' : '77'} MB first time)...`);
+    if (progressCb) progressCb(`Loading ONNX models (${gpu ? '77' : '52'} MB first time)...`);
 
-    // Load all models in parallel
-    const [detBuf, vocabResp, enc, dec] = await Promise.all([
-      _loadCached(ONNX_MODELS.det).then(r => r.arrayBuffer()),
-      _loadCached(ONNX_MODELS.vocab).then(r => r.text()),
-      _createEncoder(backend, opts),
-      _createDecoder(backend, opts),
-    ]);
+    // Download everything in parallel (it fills the cache), then create the sessions one after another: the first
+    // sessions initialise the WASM runtime, and doing that from several places at once fails ("multiple calls to initWasm()").
+    const candidates = [ONNX_MODELS.det, ONNX_MODELS.vocab, ONNX_MODELS.decoderInit, ONNX_MODELS.decoderStep,
+      gpu ? ONNX_MODELS.encoderGpu : ONNX_MODELS.encoderInt8];
+    await Promise.all(candidates.map(u => _loadCached(u).catch(() => null)));
 
     if (progressCb) progressCb('Creating ONNX sessions...');
 
-    _encSession = enc;
-    _dec = dec;
-    _detSession = await ort.InferenceSession.create(detBuf, opts);
+    _detSession = await _modelSession(ONNX_MODELS.det, opts);
+    _dec = await _createDecoder(opts);
+    _encSession = await _createEncoder(gpu);
+    const vocabResp = await (await _loadCached(ONNX_MODELS.vocab)).text();
 
     _vocab = vocabResp.split('\n').filter(l => l.length > 0 || l === '');
     // Ensure empty lines map to space character (index for space in vocab)
     _vocab = vocabResp.split('\n').map(l => l === '' ? '' : l);
 
-    _backend = backend;
     onnxReady = true;
-    console.log(`[ONNX] Ready. Backend: ${backend}, vocab: ${_vocab.length} tokens`);
+    console.log(`[ONNX] Ready. Encoder: ${_encoderOnGpu ? 'WebGPU' : 'WASM'}, vocab: ${_vocab.length} tokens`);
     return true;
 
   } catch (e) {
@@ -575,6 +587,15 @@ async function _recognizeBoxes(canvas, boxes) {
 async function _recognizeBox(canvas, box) {
   const imgTensor = _preprocessVietOCR(canvas, box.x0, box.y0, box.x1, box.y1);
   if (!imgTensor) return { text: '', confidence: 0 };
+
+  if (_encoderOnGpu) {
+    const memory = await _gpuEncode(imgTensor);
+    imgTensor.dispose();
+    if (_pool) return _pool.decodeMemory(new Float32Array(memory.data), [...memory.dims]);   // onnxruntime owns memory.data
+    const result = await vietocrDecodeMemory(_dec, memory, _vocab, yieldToMain);
+    memory.dispose();
+    return result;
+  }
   if (_pool) return _pool.recognize(imgTensor);   // the tensor's buffer is handed to a worker
   const result = await vietocrDecode(_encSession, _dec, imgTensor, _vocab, yieldToMain);
   imgTensor.dispose();

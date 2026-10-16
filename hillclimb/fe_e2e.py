@@ -21,24 +21,35 @@ def rodney(*args, timeout=120):
 
 
 def js(expr):
-    return rodney("js", expr)
+    out = rodney("js", expr)
+    if "SyntaxError" in out or out.startswith("error:"):
+        sys.exit("harness: rodney js failed: %s  <- %s" % (out[:200], expr[:120]))   # an ignored failure once made every "int8" run use fp16
+    return out
 
 
 # Chrome is started separately with WebGPU flags: see run_chrome.sh. Plain headless has no GPU adapter and ORT then hangs.
-rodney("connect", "localhost:9333")
+rodney("connect", "localhost:" + os.environ.get("CHROME_PORT", "9333"))
 rodney("open", URL)
 time.sleep(3)
 # the profile caches the page and its scripts heuristically; a hard reload picks up local edits
 rodney("reload", "--hard")
 time.sleep(5)
 if os.environ.get("INT8_LOCAL"):
-    js("ONNX_MODELS.encoderInt8 = '/hillclimb/models_out/vietocr/encoder_int8.onnx'; 1")
+    js("(ONNX_MODELS.encoderInt8 = '/hillclimb/models_out/vietocr/encoder_int8.onnx', 1)")
 if os.environ.get("DEC_LOCAL"):
     js("(ONNX_MODELS.decoder = '%s', 1)" % os.environ["DEC_LOCAL"])
+if os.environ.get("GPU_ENC_LOCAL"):
+    js("(ONNX_MODELS.encoderGpu = '%s', 1)" % os.environ["GPU_ENC_LOCAL"])
 if os.environ.get("KV_LOCAL"):
     js("(ONNX_MODELS.decoderInit = '/hillclimb/models_out/vietocr/decoder_init_fp16w.onnx', ONNX_MODELS.decoderStep = '/hillclimb/models_out/vietocr/decoder_step_fp16w.onnx', 1)")
 if os.environ.get("FAKE_CORES"):
     js("(Object.defineProperty(navigator, 'hardwareConcurrency', {get: () => %s}), 1)" % os.environ["FAKE_CORES"])
+if os.environ.get("PHASES"):
+    js("(window.__t = [], ['renderPageToCanvas', 'findGrid', 'ocrPageWithGrid', 'detectTableBorders', 'startOcrPool', 'stopOcrPool', 'ocrTableExtract', 'repairNumbering', 'repairArithmetic', 'renderPreview', 'showStats'].forEach(n => { const o = window[n]; if (typeof o !== 'function') return; window[n] = async function (...a) { const t0 = performance.now(); try { return await o.apply(this, a); } finally { window.__t.push([n, Math.round(performance.now() - t0)]); } }; }), 1)")
+if os.environ.get("TRACE"):
+    js("(window.__enc = [], window.__dec = [], window.__g = window._gpuEncode, window._gpuEncode = function (t) { const s = performance.now(); return window.__g(t).then(m => { window.__enc.push([Math.round(s), Math.round(performance.now())]); return m; }); }, window.__d = OcrPool.prototype.decodeMemory, OcrPool.prototype.decodeMemory = function (d, dims) { const s = performance.now(); return window.__d.call(this, d, dims).then(r => { window.__dec.push([Math.round(s), Math.round(performance.now())]); return r; }); }, 1)")
+if os.environ.get("WARN"):
+    js("(window.__w = [], console.warn = (...a) => window.__w.push(a.map(String).join(' ').slice(0, 400)), console.error = console.warn, 1)")
 if os.environ.get("PROFILE"):
     js("(window.__reads = [], window.__orig = _recognizeBox, _recognizeBox = async (c, b) => { const r = await window.__orig(c, b); window.__reads.push(r.ms); return r; }, 1)")
 if MINCONF:
@@ -58,7 +69,7 @@ t0 = time.time()
 print(rodney("file", "#fileInput", PDF), flush=True)
 last = ""
 while time.time() - t0 < 3600:
-    time.sleep(15)
+    time.sleep(2)
     state = js("JSON.stringify({rows: extractedRows.length, page: currentOCRPage, total: totalPDFPages, "
                "result: !document.getElementById('resultPanel').classList.contains('hidden'), "
                "prog: document.getElementById('progressText').textContent})")
@@ -81,3 +92,12 @@ if os.environ.get("LINES_OUT"):
 
 if os.environ.get("PROFILE"):
     open(os.environ["PROFILE"], "w").write(js("JSON.stringify(window.__reads)"))
+
+if os.environ.get("PHASES"):
+    open(os.environ["PHASES"], "w").write(js("JSON.stringify(window.__t)"))
+
+if os.environ.get("TRACE"):
+    open(os.environ["TRACE"], "w").write(js("JSON.stringify({enc: window.__enc, dec: window.__dec})"))
+
+if os.environ.get("WARN"):
+    print("\n".join(json.loads(js("JSON.stringify(window.__w)"))[:8]))
