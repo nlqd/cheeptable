@@ -3,9 +3,9 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>CheepTable — Chuyển bảng PDF tiếng Việt sang Excel</title>
-<meta name="description" content="Chuyển bảng trong PDF và ảnh tiếng Việt sang Excel ngay trên trình duyệt. Không tải tệp lên máy chủ. Dùng cho bảng tiên lượng, báo cáo tài chính, bảng giá. Extract Vietnamese tables to Excel in your browser.">
-<meta name="keywords" content="chuyển PDF sang Excel, OCR tiếng Việt, bảng tiên lượng, báo cáo tài chính, bảng giá, nhận dạng bảng, PDF table extraction, Vietnamese OCR">
+<title>CheepTable — OCR tiếng Việt miễn phí, không quảng cáo</title>
+<meta name="description" content="OCR tiếng Việt miễn phí, không quảng cáo, không cần đăng ký. Chuyển bảng trong PDF và ảnh sang Excel ngay trên trình duyệt; tệp không rời khỏi máy bạn.">
+<meta name="keywords" content="OCR tiếng Việt miễn phí, OCR không quảng cáo, chuyển PDF sang Excel, bảng tiên lượng, báo cáo tài chính, bảng giá, nhận dạng bảng, free Vietnamese OCR, ad-free OCR, PDF table extraction">
 <meta name="author" content="CheepTable">
 <meta name="theme-color" content="#1d4ed8">
 <link rel="canonical" href="https://ocr.dzungngo.com/">
@@ -14,21 +14,22 @@
 <meta property="og:type" content="website">
 <meta property="og:locale" content="vi_VN">
 <meta property="og:url" content="https://ocr.dzungngo.com/">
-<meta property="og:title" content="CheepTable — Chuyển bảng PDF tiếng Việt sang Excel">
-<meta property="og:description" content="Nhận dạng bảng tiếng Việt trong PDF và ảnh, xuất Excel. Chạy hoàn toàn trong trình duyệt, tệp không rời khỏi máy bạn.">
+<meta property="og:title" content="CheepTable — OCR tiếng Việt miễn phí, không quảng cáo">
+<meta property="og:description" content="Chuyển bảng trong PDF và ảnh sang Excel. Miễn phí, không quảng cáo, không đăng ký; chạy trong trình duyệt, tệp không rời khỏi máy bạn.">
 <meta property="og:image" content="https://ocr.dzungngo.com/og-image.png">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
-<meta property="og:image:alt" content="CheepTable: chuyển bảng PDF sang Excel">
+<meta property="og:image:alt" content="CheepTable: OCR tiếng Việt miễn phí, không quảng cáo">
 <meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:title" content="CheepTable — Chuyển bảng PDF tiếng Việt sang Excel">
-<meta name="twitter:description" content="Nhận dạng bảng tiếng Việt trong PDF và ảnh, xuất Excel. Chạy hoàn toàn trong trình duyệt.">
+<meta name="twitter:title" content="CheepTable — OCR tiếng Việt miễn phí, không quảng cáo">
+<meta name="twitter:description" content="Chuyển bảng PDF và ảnh sang Excel. Miễn phí, không quảng cáo, chạy trong trình duyệt.">
 <meta name="twitter:image" content="https://ocr.dzungngo.com/og-image.png">
 
 <script type="application/ld+json">
 {"@context":"https://schema.org","@graph":[
-{"@type":"WebApplication","name":"CheepTable","url":"https://ocr.dzungngo.com/","applicationCategory":"BusinessApplication","operatingSystem":"Any (modern browser)","inLanguage":["vi","en"],"description":"Chuyển bảng trong PDF và ảnh tiếng Việt sang Excel ngay trên trình duyệt, không tải tệp lên máy chủ.","offers":{"@type":"Offer","price":"0","priceCurrency":"VND"}},
+{"@type":"WebApplication","name":"CheepTable","url":"https://ocr.dzungngo.com/","applicationCategory":"BusinessApplication","operatingSystem":"Any (modern browser)","inLanguage":["vi","en"],"description":"OCR tiếng Việt miễn phí, không quảng cáo: chuyển bảng trong PDF và ảnh sang Excel ngay trên trình duyệt, không tải tệp lên máy chủ.","isAccessibleForFree":true,"offers":{"@type":"Offer","price":"0","priceCurrency":"VND"}},
 {"@type":"FAQPage","mainEntity":[
+{"@type":"Question","name":"CheepTable có miễn phí không? Có quảng cáo không?","acceptedAnswer":{"@type":"Answer","text":"Có, hoàn toàn miễn phí, không có quảng cáo và không cần đăng ký. Giới hạn hiện tại chỉ là kích thước tệp tối đa 50 MB."}},
 {"@type":"Question","name":"Tệp của tôi có bị tải lên máy chủ không?","acceptedAnswer":{"@type":"Answer","text":"Không. Việc nhận dạng chạy hoàn toàn trong trình duyệt của bạn. Chỉ có các tệp mô hình được tải về một lần ở lần dùng đầu tiên."}},
 {"@type":"Question","name":"Có đọc được bảng không có đường kẻ không?","acceptedAnswer":{"@type":"Answer","text":"Có. Bảng có đường kẻ được cắt theo ô; bảng không có đường kẻ được đọc theo từng dòng chữ rồi ghép thành hàng và cột. Luôn nên kiểm tra các ô được đánh dấu."}},
 {"@type":"Question","name":"Vì sao lần đầu tải lâu hơn?","acceptedAnswer":{"@type":"Answer","text":"Trình duyệt cần tải khoảng 40 MB mô hình nhận dạng. Sau đó chúng được lưu lại nên các lần sau mở ngay."}}
@@ -46,7 +47,9 @@ body{font:16px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;backgrou
 .skip:focus{left:8px}
 header.top{max-width:1100px;margin:0 auto;padding:20px 0 12px;display:flex;flex-wrap:wrap;gap:12px 24px;align-items:center;justify-content:space-between}
 .brand h1{font-size:1.5rem;line-height:1.2}
-.brand p{color:var(--dim);font-size:.95rem;max-width:34rem}
+.brand>p{color:var(--dim);font-size:.95rem;max-width:34rem}
+.badges{list-style:none;padding:0;display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.badges li{font-size:.8rem;font-weight:600;padding:2px 10px;border:1px solid var(--ok);color:var(--ok);border-radius:999px}
 .prefs{display:flex;flex-wrap:wrap;gap:8px 16px;align-items:center}
 .seg{display:inline-flex;border:1px solid var(--border);border-radius:8px;overflow:hidden}
 .seg label{position:relative;cursor:pointer}
@@ -92,7 +95,8 @@ footer a{color:inherit}
 <header class="top">
   <div class="brand">
     <h1>CheepTable</h1>
-    <p>Chuyển bảng trong PDF và ảnh tiếng Việt sang Excel, ngay trong trình duyệt.</p>
+    <p data-i18n="tagline">OCR tiếng Việt miễn phí, không quảng cáo: chuyển bảng trong PDF và ảnh sang Excel, ngay trong trình duyệt.</p>
+    <ul class="badges"><li data-i18n="badgeFree">Miễn phí</li><li data-i18n="badgeNoAds">Không quảng cáo</li><li data-i18n="badgeNoSignup">Không cần đăng ký</li><li data-i18n="badgeLocal">Chạy trong trình duyệt</li></ul>
   </div>
   <div class="prefs">
     <div class="seg" role="radiogroup" aria-labelledby="modeLabel">
@@ -142,6 +146,7 @@ footer a{color:inherit}
     </section>
     <section>
       <h2>Câu hỏi thường gặp</h2>
+      <details><summary>CheepTable có miễn phí không? Có quảng cáo không?</summary><p>Có, hoàn toàn miễn phí, không có quảng cáo và không cần đăng ký. Giới hạn hiện tại chỉ là kích thước tệp tối đa 50 MB.</p></details>
       <details><summary>Tệp của tôi có bị tải lên máy chủ không?</summary><p>Không. Việc nhận dạng chạy hoàn toàn trong trình duyệt của bạn. Chỉ có các tệp mô hình được tải về một lần ở lần dùng đầu tiên.</p></details>
       <details><summary>Có đọc được bảng không có đường kẻ không?</summary><p>Có. Bảng có đường kẻ được cắt theo ô; bảng không có đường kẻ được đọc theo từng dòng chữ rồi ghép thành hàng và cột. Luôn nên kiểm tra các ô được đánh dấu.</p></details>
       <details><summary>Vì sao lần đầu tải lâu hơn?</summary><p>Trình duyệt cần tải khoảng 40 MB mô hình nhận dạng. Sau đó chúng được lưu lại nên các lần sau mở ngay.</p></details>
@@ -150,7 +155,7 @@ footer a{color:inherit}
   </article>
 </main>
 
-<footer><a href="https://dzungngo.com">dzungngo.com</a></footer>
+<footer><span data-i18n="footerFree">Miễn phí, không quảng cáo.</span> · <a href="https://dzungngo.com">dzungngo.com</a></footer>
 <noscript><p style="max-width:1100px;margin:16px auto;padding:12px;border:1px solid #b91c1c">CheepTable cần JavaScript để nhận dạng bảng ngay trong trình duyệt. / CheepTable needs JavaScript to run OCR in your browser.</p></noscript>
 <script src="app.js" defer></script>
 </body>
