@@ -95,3 +95,7 @@ td.flag-maybe .mark{color:var(--dim)}
 .bar{position:relative}
 .bar[data-busy]::after{content:"";position:absolute;inset:0;width:30%;background:linear-gradient(90deg,transparent,rgba(255,255,255,.55),transparent);animation:sweep 1.1s linear infinite}
 @keyframes sweep{from{transform:translateX(-100%)}to{transform:translateX(450%)}}
+
+.status[data-warn="1"]{color:var(--warn)}
+.endbtns{display:flex;flex-wrap:wrap;gap:10px}
+.notes .bad{color:var(--err);list-style:none;margin-left:-1.1rem;font-weight:600}

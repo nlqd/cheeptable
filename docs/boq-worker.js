@@ -2,13 +2,12 @@
 // every crop is independent, so throughput grows with the number of workers and needs no cross-origin isolation.
 'use strict';
 
-importScripts('https://cdn.jsdelivr.net/npm/onnxruntime-web@1.22.0/dist/ort.min.js', 'boq-decode.js');
+importScripts('https://cdn.jsdelivr.net/npm/onnxruntime-web@1.22.0/dist/ort.min.js', 'boq-decode.js', 'boq-store.js');
 
 let encSession = null, dec = null, vocab = null;
 
 async function modelBytes(cacheName, url) {
-  const cache = await caches.open(cacheName);
-  let resp = await cache.match(url);                      // the page filled this cache before starting us
+  let resp = await CTStore.get(url);                      // the page filled the store before starting us
   if (!resp) {
     resp = await fetch(url);
     if (!resp.ok) throw new Error(`HTTP ${resp.status} fetching ${url}`);

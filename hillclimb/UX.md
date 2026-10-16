@@ -37,5 +37,18 @@ Cold first visit (model cache cleared, local network): models downloaded in 2.4 
 ## Regression checks after the changes
 Extraction on the 11-page contract was byte-identical to the previous run before the grid-resolution change (571 rows). After it: CPU 96 s, 473/473 rows found, numbers 0.968, description error 0.022; GPU 56 s, the same scores.
 
+## Slow and unreliable networks, phones
+A tester reported a download of about two minutes, no retry, a start screen that was too complex, and models that were not kept on a phone. Changes and checks:
+- **Retry and resume.** Each model file downloads with Range requests, backoff and a stall timeout. A cut connection resumes where it stopped. With the first two requests per file cut at 3 MB (`ux/flaky.py`, part 1), the job finished on its own after 4 retry events and the server sent exactly the size of the models (0% overhead).
+- **Failure screen.** When the network stays down the job stops with a plain message and two buttons, "Thử lại" and "Chọn tệp khác". After the network healed, "Thử lại" finished the job and only downloaded what was missing (part 2). A page that fails to read is tried once more on fresh workers and, if it still fails, is listed in the results with a retry-all button.
+- **Partial downloads survive a killed tab.** Parts go to IndexedDB as they arrive. After a tab was killed at about 11 MB of a slow download, the reopened page finished and the server sent 30.2 of 40.7 MB (part 3).
+- **Finished files** go to the Cache API, or to IndexedDB when the Cache API refuses (some mobile and private modes). The page asks the browser for persistent storage so models are not evicted first. The start page tells returning visitors when the models are already on the device.
+- **Memory on phones.** Workers: 1 in low-memory mode, 2 on phones, 3 with a GPU, otherwise 6. The page thread loads its own sessions only when it needs them. If the previous visit ended in the middle of a job (a crash flag), the next visit turns on low-memory mode by itself. It is also a checkbox in the options menu.
+- **Start screen.** One large "Chọn tệp" button, drag anywhere on the page, paste an image with Ctrl+V, and a sample link. Layout, language and low-memory live in a small "Tùy chọn" menu.
+
+Checks on this build: functional suite 20 of 20, recovery suite 8 of 8, axe 0 violations in every layout, language and dark mode, startup 4 requests, 0.01 MB, FCP 22 ms, CLS 0. The 11-page contract is unchanged: CPU 99 s and GPU 57 s, 473 of 473 rows, numbers 0.968, description error 0.022.
+
+The phone cause is a hypothesis (too many workers, partial downloads lost when the tab is killed, no persistence request). A real phone was not available, so none of it is confirmed on one.
+
 ## Not measured
 Safari and Firefox, real phones, screen-reader speech, a cancel that lands exactly mid-page, ETA accuracy against actual time, and whether visitors prefer the default layout.

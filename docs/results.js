@@ -11,6 +11,7 @@ CT.addStrings({
   tableLabel: 'Bảng đã đọc từ tệp', rowNo: 'Số hàng',
   flagLowText: 'Cần kiểm tra: độ tin cậy thấp ({c}%)', flagLowNum: 'Cần kiểm tra số: độ tin cậy thấp ({c}%)',
   flagIdentity: 'Cần kiểm tra: số lượng × đơn giá không bằng thành tiền', flagMaybe: 'Hơi nghi ngờ: độ tin cậy {c}%',
+  failedPages: 'Không đọc được {n} trang: {list}.', retryAll: 'Thử lại cả tệp',
   headersDropped: 'Đã bỏ {n} hàng tiêu đề lặp lại.', fixedNum: 'Đã sửa {n} số bị đọc sai nhờ quan hệ số lượng × đơn giá = thành tiền.',
   fixedSeq: 'Đã sửa {n} số thứ tự nhờ quy luật tăng dần.', log: 'Nhật ký xử lý (cho hỗ trợ kỹ thuật)',
   sheetMain: 'Bảng đã đọc', sheetReview: 'Cần kiểm tra', colRow: 'Hàng', colReason: 'Lý do',
@@ -25,6 +26,7 @@ CT.addStrings({
   tableLabel: 'Table read from the file', rowNo: 'Row number',
   flagLowText: 'Check: low confidence ({c}%)', flagLowNum: 'Check the number: low confidence ({c}%)',
   flagIdentity: 'Check: quantity × unit price does not equal the amount', flagMaybe: 'Slightly doubtful: confidence {c}%',
+  failedPages: '{n} pages could not be read: {list}.', retryAll: 'Try the whole file again',
   headersDropped: 'Removed {n} repeated header rows.', fixedNum: 'Fixed {n} misread numbers using quantity × price = amount.',
   fixedSeq: 'Fixed {n} row numbers using the counting-up rule.', log: 'Processing log (for support)',
   sheetMain: 'Extracted table', sheetReview: 'To check', colRow: 'Row', colReason: 'Reason',
@@ -79,6 +81,12 @@ CT.addStrings({
 
     title.textContent = CT.t('resTitle', { rows: dataRows.length.toLocaleString(CT.lang === 'vi' ? 'vi-VN' : 'en-US'), pages });
     const notes = el('ul', 'notes');
+    const failed = CT.state.failedPages || [];
+    if (failed.length) {
+      const li = el('li', 'bad', CT.t('failedPages', { n: failed.length, list: failed.join(', ') }) + ' ');
+      const b = el('button', 'btn quiet sm', CT.t('retryAll')); b.type = 'button'; b.addEventListener('click', () => CT.retry());
+      li.append(b); notes.append(li);
+    }
     if (norm.dropped) notes.append(el('li', '', CT.t('headersDropped', { n: norm.dropped })));
     if (CT.state.fixes && CT.state.fixes.arithmetic) notes.append(el('li', '', CT.t('fixedNum', { n: CT.state.fixes.arithmetic })));
     if (CT.state.fixes && CT.state.fixes.numbering) notes.append(el('li', '', CT.t('fixedSeq', { n: CT.state.fixes.numbering })));
