@@ -366,7 +366,7 @@ async function extractPDF(buffer) {
     } else {
       // Image-based page: ONNX OCR
       if (!onnxBackendAvailable) {
-        log('Initializing ONNX models (first time ~52-77 MB download)...', 'warn');
+        log('Initializing ONNX models (first time ~41-43 MB download)...', 'warn');
         const ok = await initOnnxOCR((msg) => {
           $('progressText').textContent = msg;
         });

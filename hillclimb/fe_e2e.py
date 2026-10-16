@@ -40,6 +40,9 @@ if os.environ.get("DEC_LOCAL"):
     js("(ONNX_MODELS.decoder = '%s', 1)" % os.environ["DEC_LOCAL"])
 if os.environ.get("GPU_ENC_LOCAL"):
     js("(ONNX_MODELS.encoderGpu = '%s', 1)" % os.environ["GPU_ENC_LOCAL"])
+if os.environ.get("W8_LOCAL"):
+    base = "/hillclimb/models_out/vietocr/"
+    js("(ONNX_MODELS.encoderGpuW8 = '%sencoder_w8.onnx', ONNX_MODELS.decoderInitW8 = '%sdecoder_init_w8.onnx', ONNX_MODELS.decoderStepW8 = '%sdecoder_step_w8.onnx', 1)" % (base, base, base))
 if os.environ.get("KV_LOCAL"):
     js("(ONNX_MODELS.decoderInit = '/hillclimb/models_out/vietocr/decoder_init_fp16w.onnx', ONNX_MODELS.decoderStep = '/hillclimb/models_out/vietocr/decoder_step_fp16w.onnx', 1)")
 if os.environ.get("FAKE_CORES"):

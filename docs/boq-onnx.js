@@ -13,6 +13,11 @@ const ONNX_MODELS = {
   encoderInt8: `${ONNX_MODEL_BASE}/vietocr/encoder_int8.onnx`,
   // 55 MB, for WebGPU: fp16 weights, fp32 compute (cast folded at load). About 8 ms per line against 80-340 ms on the CPU.
   encoderGpu: `${ONNX_MODEL_BASE}/vietocr/encoder_fp16w.onnx`,
+  // Same graphs with the weights stored as int8 and a per-row scale (hillclimb/weight_only.py), computed in fp32: about half
+  // the size and no measurable accuracy change (description error 0.0218 vs 0.0220 on 576 lines).
+  encoderGpuW8: `${ONNX_MODEL_BASE}/vietocr/encoder_w8.onnx`,
+  decoderInitW8: `${ONNX_MODEL_BASE}/vietocr/decoder_init_w8.onnx`,
+  decoderStepW8: `${ONNX_MODEL_BASE}/vietocr/decoder_step_w8.onnx`,
   decoder: `${ONNX_MODEL_BASE}/vietocr/decoder_fp16.onnx`,
   // Cached decoder for the WASM backend (two graphs, 19.6 MB together, same output as the plain one): weights are
   // stored as fp16 and cast to fp32 when the session loads, which is faster on CPU than computing in fp16.
@@ -89,12 +94,14 @@ async function _modelSession(url, opts) {
 
 async function _createEncoder(gpu) {
   if (gpu) {
-    try {
-      const session = await _modelSession(ONNX_MODELS.encoderGpu, { executionProviders: ['webgpu'] });
-      _encoderOnGpu = true;
-      return session;
-    } catch (e) {
-      console.warn('[ONNX] GPU encoder unavailable, encoding on the CPU:', e);
+    for (const url of [ONNX_MODELS.encoderGpuW8, ONNX_MODELS.encoderGpu]) {
+      try {
+        const session = await _modelSession(url, { executionProviders: ['webgpu'] });
+        _encoderOnGpu = true;
+        return session;
+      } catch (e) {
+        console.warn('[ONNX] GPU encoder unavailable from ' + url + ':', e);
+      }
     }
   }
   const wasm = { executionProviders: ['wasm'] };
@@ -146,12 +153,15 @@ function stopOcrPool() {
 }
 
 async function _createDecoder(opts) {
-  try {
-    const [init, step] = await Promise.all([_modelSession(ONNX_MODELS.decoderInit, opts), _modelSession(ONNX_MODELS.decoderStep, opts)]);
-    _decoderUrls = { init: ONNX_MODELS.decoderInit, step: ONNX_MODELS.decoderStep };
-    return { init, step };
-  } catch (e) {
-    console.warn('[ONNX] cached decoder unavailable, using the plain one:', e);
+  const pairs = [[ONNX_MODELS.decoderInitW8, ONNX_MODELS.decoderStepW8], [ONNX_MODELS.decoderInit, ONNX_MODELS.decoderStep]];
+  for (const [initUrl, stepUrl] of pairs) {
+    try {
+      const [init, step] = await Promise.all([_modelSession(initUrl, opts), _modelSession(stepUrl, opts)]);
+      _decoderUrls = { init: initUrl, step: stepUrl };
+      return { init, step };
+    } catch (e) {
+      console.warn('[ONNX] cached decoder unavailable from ' + stepUrl + ':', e);
+    }
   }
   _decoderUrls = { plain: ONNX_MODELS.decoder };
   return { plain: await _modelSession(ONNX_MODELS.decoder, opts) };
@@ -171,17 +181,16 @@ async function initOnnxOCR(progressCb) {
     const gpu = await _hasGpu();
     const opts = { executionProviders: ['wasm'] };
 
-    if (progressCb) progressCb(`Loading ONNX models (${gpu ? '77' : '52'} MB first time)...`);
+    if (progressCb) progressCb(`Loading ONNX models (${gpu ? '41' : '43'} MB first time)...`);
 
     // Download everything in parallel (it fills the cache), then create the sessions one after another: the first
     // sessions initialise the WASM runtime, and doing that from several places at once fails ("multiple calls to initWasm()").
-    const candidates = [ONNX_MODELS.det, ONNX_MODELS.vocab, ONNX_MODELS.decoderInit, ONNX_MODELS.decoderStep,
-      gpu ? ONNX_MODELS.encoderGpu : ONNX_MODELS.encoderInt8];
+    const candidates = [ONNX_MODELS.vocab, ONNX_MODELS.decoderInitW8, ONNX_MODELS.decoderStepW8,
+      gpu ? ONNX_MODELS.encoderGpuW8 : ONNX_MODELS.encoderInt8];
     await Promise.all(candidates.map(u => _loadCached(u).catch(() => null)));
 
     if (progressCb) progressCb('Creating ONNX sessions...');
 
-    _detSession = await _modelSession(ONNX_MODELS.det, opts);
     _dec = await _createDecoder(opts);
     _encSession = await _createEncoder(gpu);
     const vocabResp = await (await _loadCached(ONNX_MODELS.vocab)).text();
@@ -395,7 +404,9 @@ function _splitByProjection(canvas, box, expectedRowH) {
   return result.length > 0 ? result : [box];
 }
 
+// The text detector (2.4 MB) is only needed on pages without a ruled grid, so it is fetched the first time one appears.
 async function _detectTextBoxes(canvas) {
+  if (!_detSession) _detSession = await _modelSession(ONNX_MODELS.det, { executionProviders: ['wasm'] });
   const pre = _preprocessDetection(canvas);
 
   const result = await _detSession.run({ x: pre.tensor });
