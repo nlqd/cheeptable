@@ -242,6 +242,7 @@ async function loadSamplePDF() {
 // ── Cancel Processing ──
 function cancelProcessing() {
   processingCancelled = true;
+  stopOcrPool();   // workers stop at once; reads in flight fail and the page loop sees the cancel flag
   log('Processing cancelled by user', 'warn');
   $('progressPanel').classList.add('hidden');
   $('pbar').style.width = '0%';
@@ -295,6 +296,8 @@ async function handleFile(file) {
     alert('Processing failed: ' + err.message + '\n\nPlease try:\n1. A smaller PDF file\n2. Refreshing the page\n3. Using a different browser');
     console.error(err);
     $('progressPanel').classList.add('hidden');
+  } finally {
+    stopOcrPool();   // cancel, error or success: the workers (about 250 MB each) must not outlive the job
   }
 }
 
