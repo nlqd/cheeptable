@@ -6,6 +6,7 @@ Writes rows in the same shape the app dumps (type/cells/page), so score.py can c
 Run with ../venv_onnx_export/bin/python.
 """
 import json
+import os
 import sys
 
 import cv2
@@ -15,6 +16,8 @@ import pypdfium2 as pdfium
 import grid
 import recog
 
+V2 = os.environ.get("GRID_V2") == "1"
+MERGE = os.environ.get("GRID_MERGE") == "1"
 INK = 170
 MIN_BAND_H = 6
 
@@ -41,7 +44,11 @@ def bands(gray, min_gap=3):
 def read_cell(gray):
     lines = []
     for a, b in bands(gray):
-        crop = recog.pad(recog.tight(gray[a:b]), 10)
+        tight = recog.tight(gray[a:b])
+        # a ruled-line fragment: spans the whole cell height and is narrow
+        if (b - a) >= 0.9 * gray.shape[0] and tight.shape[1] < 0.5 * (b - a):
+            continue
+        crop = recog.pad(tight, 10)
         lines.append(recog.predictor().predict(recog.to_pil(crop)))
     return " ".join(lines)
 
@@ -53,17 +60,26 @@ def extract(pdf_path, pages=None, scale=2):
         if pages and (p + 1) not in pages:
             continue
         img = np.array(pdf[p].render(scale=scale).to_pil().convert("L"))
-        ys, xs = grid.find_grid(img)
+        ys, xs, ver = grid.find_grid2(img) if V2 else (*grid.find_grid(img), None)
         if len(xs) < 3 or len(ys) < 3:
             continue
         for r in range(len(ys) - 1):
             y0, y1 = ys[r] + 3, ys[r + 1] - 2
             if y1 - y0 < 12:
                 continue
+            # a separator counts as present when the vertical-line mask covers half the row height there
+            sep = [True] * len(xs) if (ver is None or not MERGE) else [
+                (ver[y0:y1, max(xs[c] - 6, 0):xs[c] + 7] > 0).any(axis=1).mean() >= 0.4 for c in range(len(xs))]
+            spans, start = [], 0
+            for c in range(1, len(xs)):
+                if sep[c] or c == len(xs) - 1:
+                    spans.append((start, c))
+                    start = c
             cells = []
-            for c in range(len(xs) - 1):
-                x0, x1 = xs[c] + 3, xs[c + 1] - 2
+            for a, b in spans:
+                x0, x1 = xs[a] + 3, xs[b] - 2
                 cells.append(read_cell(img[y0:y1, x0:x1]) if x1 - x0 >= 8 else "")
+            cells += [""] * (len(xs) - 1 - len(cells))
             if not cells[0].strip():
                 continue
             rows.append({"type": "data", "page": p + 1, "cells": [{"value": v} for v in cells]})

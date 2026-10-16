@@ -68,6 +68,16 @@ Static QDQ int8, first conv kept float: 29.8 MB against 55 MB fp16. Full contrac
 Cost: about 2.6 minutes per page on WASM in headless Chrome (the full contract took 29 minutes). Recognition time is dominated by the decoder, which recomputes the whole sequence at every step (no key/value cache), so a long description line takes several seconds.
 A bug found on the way: the old table builder re-guessed columns from geometry and merged words closer than 10 pt across a column line, which pulled right-aligned prices into the neighbouring cell (synthetic numbers 0.70). Grid words now carry their cell and skip that logic.
 
+## Round 2: where the remaining errors came from
+66% of the description error sat in 15 rows. They were not merged rows: the row-number (STT) column was misread (`7` as `1`: 27 -> 21, 127 -> 121), so two rows shared a number and the scorer paired the wrong texts; plus junk rows made of ruling fragments read as the digit 1.
+- Column lines now need to be at least 0.4 x as strong as the strongest vertical line, ignoring the page-edge shadow (a fixed 25 px threshold gave 14 columns on a short table). Stable for any value from 0.2 to 0.5.
+- An ink run that fills the whole cell height and is narrower than half its height is a ruling fragment and is skipped.
+- `docs/boq-sequence.js`: row numbers count up by one; a number is repaired only when the expected next number is one confusable digit away.
+- Tried and dropped: merging cells across a missing separator (changed nothing on this contract).
+Python prototype on the contract (`grid_extract.py` + the JS repairs): 473/473 rows, STT 473/473 in order, numbers 0.977, description error 0.024.
+Whole app (browser, WASM): contract 472/473, STT 472/473, numbers 0.966, description error 0.029 (tuning 0.031, held-out 0.026); synthetic 120/120, numbers 0.975, description error 0.029 (was 0.046).
+Not done on purpose: mapping `P`/`2`/`b` before a diameter back to the glyph `Þ`. It would be fitted to this contract's font and would corrupt real "P150" in other documents. It accounts for about 125 of the remaining description error characters; "đổ" read as "đồ" accounts for 44.
+
 ## Not measured
 - Borderless tables: the grid path returns nothing there and the detector path runs as before; only the contract and the synthetic document (both ruled) were tested.
 - WebGPU: the new backend check (adapter must have `shader-f16`) was written after seeing fp16 models return only `<pad>` tokens under a WebGPU adapter without f16; I did not run a machine with working f16 shaders.

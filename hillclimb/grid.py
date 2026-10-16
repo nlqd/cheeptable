@@ -41,6 +41,25 @@ def find_grid(gray):
     return ys, xs
 
 
+def find_grid2(gray):
+    """Like find_grid, but a column line must be at least VREL times as strong as the strongest vertical line, and the vertical-line mask is returned
+    so callers can tell which rows have a separator at which column line (heading rows have none)."""
+    h, w = gray.shape
+    bw = cv2.adaptiveThreshold(gray, 255, cv2.ADAPTIVE_THRESH_MEAN_C, cv2.THRESH_BINARY_INV, 25, 10)
+    hor = cv2.morphologyEx(bw, cv2.MORPH_OPEN, cv2.getStructuringElement(cv2.MORPH_RECT, (w // 8, 1)))
+    ver = cv2.morphologyEx(bw, cv2.MORPH_OPEN, cv2.getStructuringElement(cv2.MORPH_RECT, (1, 30)))
+    ys = clusters(np.where(hor.sum(axis=1) > 255 * (w * 0.25))[0].tolist() or [0], 4)
+    mass = ver.sum(axis=0).astype(float)
+    mass[: int(0.05 * w)] = 0       # the scan-edge shadow would otherwise set the scale
+    mass[int(0.96 * w):] = 0
+    xs_all = np.where(mass > max(255 * 25, VREL * mass.max()))[0].tolist()
+    xs = [x for x in (clusters(xs_all, 10) if xs_all else []) if 0.05 * w < x < 0.96 * w]
+    return ys, xs, ver
+
+
+VREL = float(__import__('os').environ.get('VREL', '0.4'))
+
+
 def main(pdf_path, outdir, scale=2):
     out = Path(outdir)
     out.mkdir(parents=True, exist_ok=True)
