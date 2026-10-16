@@ -149,24 +149,28 @@ async function ocrPageWithGrid(canvas, pageNum, grid) {
   const cells = gridCells(grid.xs, grid.ys, grid.f);
   const words = [];
 
+  const items = [];
   for (let i = 0; i < cells.length; i++) {
     for (const box of _cellLineBoxes(ctx, cells[i], grid.f)) {
-      if (box.x1 - box.x0 < 5 || box.y1 - box.y0 < 5) continue;
-      const { text: rawText, confidence } = await _recognizeBox(canvas, box);
-      const text = _postProcess(rawText).trim();
-      if (!text) continue;
-      words.push({
-        text,
-        x: box.x0 / s, y: box.y0 / s, x1: box.x1 / s, y1: box.y1 / s,
-        width: (box.x1 - box.x0) / s, height: (box.y1 - box.y0) / s,
-        confidence: confidence * 100,
-        src: _NUMERIC_RE.test(text) ? 'onnx-num' : 'onnx-viet',
-        page: pageNum,
-        cell: { row: cells[i].row, col: cells[i].col },
-      });
+      if (box.x1 - box.x0 >= 5 && box.y1 - box.y0 >= 5) items.push({ box, cell: cells[i] });
     }
-    if (i % 5 === 0) await yieldToMain();
+    if (i % 20 === 0) await yieldToMain();
   }
+
+  const reads = await _recognizeBoxes(canvas, items.map(it => it.box));
+  items.forEach(({ box, cell }, i) => {
+    const text = _postProcess(reads[i].text).trim();
+    if (!text) return;
+    words.push({
+      text,
+      x: box.x0 / s, y: box.y0 / s, x1: box.x1 / s, y1: box.y1 / s,
+      width: (box.x1 - box.x0) / s, height: (box.y1 - box.y0) / s,
+      confidence: reads[i].confidence * 100,
+      src: _NUMERIC_RE.test(text) ? 'onnx-num' : 'onnx-viet',
+      page: pageNum,
+      cell: { row: cell.row, col: cell.col },
+    });
+  });
 
   perfEnd(`Grid OCR page ${pageNum}`);
   console.log(`[Grid] Page ${pageNum}: ${cells.length} cells, ${words.length} text lines recognized`);

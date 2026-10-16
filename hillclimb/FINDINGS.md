@@ -78,6 +78,14 @@ Python prototype on the contract (`grid_extract.py` + the JS repairs): 473/473 r
 Whole app (browser, WASM): contract 472/473, STT 472/473, numbers 0.966, description error 0.029 (tuning 0.031, held-out 0.026); synthetic 120/120, numbers 0.975, description error 0.029 (was 0.046).
 Not done on purpose: mapping `P`/`2`/`b` before a diameter back to the glyph `Þ`. It would be fitted to this contract's font and would corrupt real "P150" in other documents. It accounts for about 125 of the remaining description error characters; "đổ" read as "đồ" accounts for 44.
 
+## Speed (browser, WASM)
+Single-threaded, a page took 2.6 min and the full contract 29 min. Probe on 4 lines (`speed_probe.js`): the page is not cross-origin isolated, so onnxruntime-web runs 1 thread even on 24 cores. Encoder 150-650 ms per line; decoder 17-46 ms per token, growing with line length because every step recomputes the whole sequence. Each row needs about 6 reads, so the short number cells cost as much as the descriptions.
+Options measured:
+- fp32 decoder instead of fp16: 23% faster, identical text, but 39 MB instead of 20 MB. int8 decoder: 36% faster, but 2 of 4 lines changed text. Not adopted.
+- WASM threads (needs COOP/COEP; `coi_server.py` served them locally): 4 threads 2.2x, 8 threads 2.7x on a whole read, mostly from the encoder; the decoder barely scales. Not adopted: GitHub Pages cannot set the headers and Safari lacks `credentialless`.
+- Worker pool (adopted): every cell read is independent, so single-threaded workers read in parallel (`boq-worker.js`, `boq-pool.js`, shared `boq-decode.js`). Two pages: 1 worker 330 s, 2 workers 165 s, 4 workers 90 s, 8 workers 60 s. Full contract: 8 workers 270 s, 6 workers 330 s, against 1737 s single. Output is cell-for-cell identical to the single-threaded run (571 rows). Each worker costs about 250 MB (page 1.4 GB, 8 workers 3.4 GB), so the default is min(6, cores / 2), started when a scanned page needs OCR and stopped before table building.
+Not tried: a decoder with a key/value cache (removes the quadratic growth, needs a model re-export), batching several lines in one decode.
+
 ## Not measured
 - Borderless tables: the grid path returns nothing there and the detector path runs as before; only the contract and the synthetic document (both ruled) were tested.
 - WebGPU: the new backend check (adapter must have `shader-f16`) was written after seeing fp16 models return only `<pad>` tokens under a WebGPU adapter without f16; I did not run a machine with working f16 shaders.

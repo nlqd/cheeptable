@@ -16,9 +16,6 @@ const ONNX_MODELS = {
 };
 const CACHE_NAME = 'boq-onnx-models-v1';
 
-// VietOCR special tokens
-const SOS = 1, EOS = 2;
-
 // DB post-processing parameters. PaddleOCR defaults are box 0.6 and side 960; on dense scanned tables that
 // dropped about half of the description lines. Both needed to change: 960 px with box 0.5 or 1280 px with
 // box 0.6 recovered almost nothing (probe: hillclimb/det_probe.js).
@@ -40,6 +37,9 @@ let _detSession = null;
 let _encSession = null;
 let _decSession = null;
 let _vocab = null;       // array of chars, index = token id
+let _pool = null;        // OcrPool of single-threaded workers (WASM backend only), or null
+let _backend = null;     // 'webgpu' or 'wasm'
+let _encoderUrl = null;  // the encoder model actually in use, so the workers load the same one
 let onnxReady = false;
 let onnxLoading = false;
 
@@ -79,13 +79,44 @@ async function _createEncoder(backend, opts) {
     try {
       const resp = await _loadCached(ONNX_MODELS.encoderInt8);
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-      return await ort.InferenceSession.create(await resp.arrayBuffer(), opts);
+      const session = await ort.InferenceSession.create(await resp.arrayBuffer(), opts);
+      _encoderUrl = ONNX_MODELS.encoderInt8;
+      return session;
     } catch (e) {
       console.warn('[ONNX] int8 encoder unavailable, using fp16:', e);
     }
   }
   const resp = await _loadCached(ONNX_MODELS.encoder);
+  _encoderUrl = ONNX_MODELS.encoder;
   return ort.InferenceSession.create(await resp.arrayBuffer(), opts);
+}
+
+// Cell reads are independent, so on the WASM backend (single-threaded in a normal page) several workers read in
+// parallel. Measured on 24 cores: a long line takes 4.4 s alone; workers divide the page's reads between them.
+// Falls back to reading on the page thread when workers cannot start.
+// Each worker holds its own copy of the models, about 250 MB, so the count is capped. Two pages took 330 s with 1
+// worker, 165 s with 2, 90 s with 4 and 60 s with 8; past 4 the gain flattens.
+function _workerCount() {
+  const cores = navigator.hardwareConcurrency || 4;
+  return Math.max(1, Math.min(6, Math.floor(cores / 2)));
+}
+
+// Started when a scanned page needs OCR and stopped once all pages are read, so the memory is given back.
+async function startOcrPool() {
+  if (_pool || _backend !== 'wasm' || typeof OcrPool === 'undefined') return;
+  try {
+    _pool = await OcrPool.create(_workerCount(), {
+      wasmPaths: ort.env.wasm.wasmPaths, cacheName: CACHE_NAME,
+      encoderUrl: _encoderUrl, decoderUrl: ONNX_MODELS.decoder, vocab: _vocab,
+    });
+  } catch (e) {
+    console.warn('[ONNX] worker pool unavailable, reading on the page thread:', e);
+  }
+}
+
+function stopOcrPool() {
+  if (_pool) _pool.close();
+  _pool = null;
 }
 
 async function initOnnxOCR(progressCb) {
@@ -124,6 +155,7 @@ async function initOnnxOCR(progressCb) {
     // Ensure empty lines map to space character (index for space in vocab)
     _vocab = vocabResp.split('\n').map(l => l === '' ? '' : l);
 
+    _backend = backend;
     onnxReady = true;
     console.log(`[ONNX] Ready. Backend: ${backend}, vocab: ${_vocab.length} tokens`);
     return true;
@@ -510,57 +542,21 @@ function _preprocessVietOCR(canvas, x0, y0, x1, y1) {
   return new ort.Tensor('float32', data, [1, 3, 32, finalW]);
 }
 
+// All crops of a page at once: with a worker pool they are read in parallel, otherwise one after another.
+async function _recognizeBoxes(canvas, boxes) {
+  if (_pool) return Promise.all(boxes.map(b => _recognizeBox(canvas, b)));
+  const out = [];
+  for (const b of boxes) out.push(await _recognizeBox(canvas, b));
+  return out;
+}
+
 async function _recognizeBox(canvas, box) {
   const imgTensor = _preprocessVietOCR(canvas, box.x0, box.y0, box.x1, box.y1);
   if (!imgTensor) return { text: '', confidence: 0 };
-
-  // Encode
-  const encResult = await _encSession.run({ image: imgTensor });
-  const memory = encResult.memory;
+  if (_pool) return _pool.recognize(imgTensor);   // the tensor's buffer is handed to a worker
+  const result = await vietocrDecode(_encSession, _decSession, imgTensor, _vocab, yieldToMain);
   imgTensor.dispose();
-
-  // Greedy decode
-  const tokenIds = [SOS];
-  const maxLen = 128;
-  const probs = [];
-
-  for (let step = 0; step < maxLen; step++) {
-    const tgtData = new BigInt64Array(tokenIds.map(t => BigInt(t)));
-    const tgtTensor = new ort.Tensor('int64', tgtData, [tokenIds.length, 1]);
-
-    const decResult = await _decSession.run({ tokens: tgtTensor, memory });
-    const logits = decResult.logits.data; // Float32Array [vocab_size]
-    tgtTensor.dispose();
-
-    // Softmax + argmax
-    let maxVal = -Infinity, maxIdx = 0;
-    for (let j = 0; j < logits.length; j++) {
-      if (logits[j] > maxVal) { maxVal = logits[j]; maxIdx = j; }
-    }
-
-    decResult.logits.dispose();
-
-    if (maxIdx === EOS) break;
-    tokenIds.push(maxIdx);
-
-    // Track probability for confidence (softmax of max)
-    let expSum = 0;
-    for (let j = 0; j < logits.length; j++) expSum += Math.exp(logits[j] - maxVal);
-    probs.push(1.0 / expSum);
-
-    // Yield to main thread every 10 steps
-    if (step % 10 === 9) await yieldToMain();
-  }
-
-  memory.dispose();
-
-  // Decode tokens to string
-  const text = tokenIds.slice(1).map(id => _vocab[id] || '').join('');
-  const confidence = probs.length > 0
-    ? probs.reduce((a, b) => a + b, 0) / probs.length
-    : 0;
-
-  return { text, confidence };
+  return result;
 }
 
 // ── Post-processing (mirrors ocr_server.py fixes) ──
@@ -595,16 +591,15 @@ async function ocrPageWithOnnx(canvas, pageNum) {
   const s = OCR_SCALE;
   const words = [];
 
-  for (let i = 0; i < boxes.length; i++) {
-    const box = boxes[i];
-    const cropW = box.x1 - box.x0, cropH = box.y1 - box.y0;
-    if (cropW < 5 || cropH < 5) continue;
+  const usable = boxes.filter(b => b.x1 - b.x0 >= 5 && b.y1 - b.y0 >= 5);
+  const reads = await _recognizeBoxes(canvas, usable);
 
-    const { text: rawText, confidence } = await _recognizeBox(canvas, box);
-    if (!rawText.trim() || confidence < 0.65) continue;
+  usable.forEach((box, i) => {
+    const { text: rawText, confidence } = reads[i];
+    if (!rawText.trim() || confidence < 0.65) return;
 
     const text = _postProcess(rawText);
-    if (!text.trim()) continue;
+    if (!text.trim()) return;
 
     words.push({
       text:       text.trim(),
@@ -618,10 +613,7 @@ async function ocrPageWithOnnx(canvas, pageNum) {
       src:        _NUMERIC_RE.test(text.trim()) ? 'onnx-num' : 'onnx-viet',
       page:       pageNum,
     });
-
-    // Progress feedback
-    if (i % 5 === 0) await yieldToMain();
-  }
+  });
 
   perfEnd(`ONNX OCR page ${pageNum}`);
   console.log(`[ONNX] Page ${pageNum}: ${words.length} words recognized`);

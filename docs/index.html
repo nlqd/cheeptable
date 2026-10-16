@@ -140,6 +140,8 @@ footer a { color: inherit; }
 <script src="boq-utils.js"></script>
 <script src="boq-viet.js"></script>
 <script src="boq-ocr.js"></script>
+<script src="boq-decode.js"></script>
+<script src="boq-pool.js"></script>
 <script src="boq-onnx.js"></script>
 <script src="boq-grid.js"></script>
 <script src="boq-arith.js"></script>
@@ -372,6 +374,7 @@ async function extractPDF(buffer) {
         onnxBackendAvailable = true;
       }
 
+      await startOcrPool();
       const canvas = await renderPageToCanvas(page, OCR_SCALE);
       pageCanvases[p] = canvas;
 
@@ -426,6 +429,8 @@ async function extractPDF(buffer) {
     page.cleanup();
     pageTimings.push(performance.now() - pageStartTime);
   }
+
+  stopOcrPool();
 
   // Pass 2: Table extraction
   $('pbar').style.width = '85%';
