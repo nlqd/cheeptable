@@ -157,7 +157,11 @@ async function ocrPageWithGrid(canvas, pageNum, grid) {
     if (i % 20 === 0) await yieldToMain();
   }
 
-  const reads = await _recognizeBoxes(canvas, items.map(it => it.box));
+  window.CT?.emit('page:reads', { page: pageNum, total: items.length, cells: cells.length });
+  let readCount = 0;
+  const reads = await _recognizeBoxes(canvas, items.map(it => it.box), (i, r) => {
+    window.CT?.emit('read', { page: pageNum, done: ++readCount, total: items.length, text: r.text, conf: r.confidence, box: items[i].box });
+  });
   items.forEach(({ box, cell }, i) => {
     const text = _postProcess(reads[i].text).trim();
     if (!text) return;

@@ -1,504 +1,157 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="vi">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>CheepTable — PDF Table OCR to Excel</title>
-<meta name="description" content="Extract tables from Vietnamese PDF files directly in your browser. No upload, no server — AI-powered OCR converts construction BOQ and pricing tables to Excel.">
-<meta name="keywords" content="PDF table extraction, Vietnamese OCR, BOQ, bảng giá, Excel, ONNX, browser OCR">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CheepTable — Chuyển bảng PDF tiếng Việt sang Excel</title>
+<meta name="description" content="Chuyển bảng trong PDF và ảnh tiếng Việt sang Excel ngay trên trình duyệt. Không tải tệp lên máy chủ. Dùng cho bảng tiên lượng, báo cáo tài chính, bảng giá. Extract Vietnamese tables to Excel in your browser.">
+<meta name="keywords" content="chuyển PDF sang Excel, OCR tiếng Việt, bảng tiên lượng, báo cáo tài chính, bảng giá, nhận dạng bảng, PDF table extraction, Vietnamese OCR">
 <meta name="author" content="CheepTable">
+<meta name="theme-color" content="#1d4ed8">
 <link rel="canonical" href="https://ocr.dzungngo.com/">
 <link rel="icon" href="favicon.svg" type="image/svg+xml">
 
-<!-- Open Graph / Facebook -->
 <meta property="og:type" content="website">
+<meta property="og:locale" content="vi_VN">
 <meta property="og:url" content="https://ocr.dzungngo.com/">
-<meta property="og:title" content="CheepTable — PDF Table OCR to Excel">
-<meta property="og:description" content="Extract tables from Vietnamese PDF files directly in your browser. No upload, no server — AI-powered OCR converts construction BOQ and pricing tables to Excel.">
+<meta property="og:title" content="CheepTable — Chuyển bảng PDF tiếng Việt sang Excel">
+<meta property="og:description" content="Nhận dạng bảng tiếng Việt trong PDF và ảnh, xuất Excel. Chạy hoàn toàn trong trình duyệt, tệp không rời khỏi máy bạn.">
 <meta property="og:image" content="https://ocr.dzungngo.com/og-image.png">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
-<meta property="og:image:alt" content="CheepTable: PDF table OCR to Excel">
-
-<!-- Twitter -->
+<meta property="og:image:alt" content="CheepTable: chuyển bảng PDF sang Excel">
 <meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:title" content="CheepTable — PDF Table OCR to Excel">
-<meta name="twitter:description" content="Extract tables from Vietnamese PDF files directly in your browser. No upload, no server — AI-powered OCR converts construction BOQ and pricing tables to Excel.">
+<meta name="twitter:title" content="CheepTable — Chuyển bảng PDF tiếng Việt sang Excel">
+<meta name="twitter:description" content="Nhận dạng bảng tiếng Việt trong PDF và ảnh, xuất Excel. Chạy hoàn toàn trong trình duyệt.">
 <meta name="twitter:image" content="https://ocr.dzungngo.com/og-image.png">
-<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/onnxruntime-web@1.22.0/dist/ort.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/clipper-lib@6.4.2/clipper.js"></script>
-<link href="https://unpkg.com/tabulator-tables@6.3.1/dist/css/tabulator_simple.min.css" rel="stylesheet">
-<script src="https://unpkg.com/tabulator-tables@6.3.1/dist/js/tabulator.min.js"></script>
-<script src="vn_syllable_corrector.js"></script>
-<script src="vietnamese_text_fixes_v2.js"></script>
-<script src="confidence-tracking.js"></script>
+
+<script type="application/ld+json">
+{"@context":"https://schema.org","@graph":[
+{"@type":"WebApplication","name":"CheepTable","url":"https://ocr.dzungngo.com/","applicationCategory":"BusinessApplication","operatingSystem":"Any (modern browser)","inLanguage":["vi","en"],"description":"Chuyển bảng trong PDF và ảnh tiếng Việt sang Excel ngay trên trình duyệt, không tải tệp lên máy chủ.","offers":{"@type":"Offer","price":"0","priceCurrency":"VND"}},
+{"@type":"FAQPage","mainEntity":[
+{"@type":"Question","name":"Tệp của tôi có bị tải lên máy chủ không?","acceptedAnswer":{"@type":"Answer","text":"Không. Việc nhận dạng chạy hoàn toàn trong trình duyệt của bạn. Chỉ có các tệp mô hình được tải về một lần ở lần dùng đầu tiên."}},
+{"@type":"Question","name":"Có đọc được bảng không có đường kẻ không?","acceptedAnswer":{"@type":"Answer","text":"Có. Bảng có đường kẻ được cắt theo ô; bảng không có đường kẻ được đọc theo từng dòng chữ rồi ghép thành hàng và cột. Luôn nên kiểm tra các ô được đánh dấu."}},
+{"@type":"Question","name":"Vì sao lần đầu tải lâu hơn?","acceptedAnswer":{"@type":"Answer","text":"Trình duyệt cần tải khoảng 40 MB mô hình nhận dạng. Sau đó chúng được lưu lại nên các lần sau mở ngay."}}
+]}]}
+</script>
+
 <style>
-:root { --bg: #ffffff; --surface: #f8fafc; --border: #e2e8f0; --accent: #3b82f6; --accent2: #047857; --text: #0f172a; --dim: #64748b; --warn: #f59e0b; }
-* { margin:0; padding:0; box-sizing:border-box; }
-body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: var(--bg); color: var(--text); min-height:100vh; padding: 24px; }
-h1 { font-size: 24px; font-weight: 700; margin-bottom: 4px; }
-.subtitle { color: var(--dim); font-size: 13px; margin-bottom: 24px; }
-
-#dropzone {
-  border: 2px dashed var(--border); border-radius: 12px; padding: 48px; text-align: center;
-  cursor: pointer; transition: all 0.2s; position: relative; margin-bottom: 20px;
-}
-#dropzone:hover, #dropzone.dragover { border-color: var(--accent); background: rgba(59,130,246,0.05); }
-#dropzone input { position:absolute; inset:0; opacity:0; cursor:pointer; }
-#dropzone p { color: var(--dim); font-size: 14px; }
-#dropzone p strong { color: var(--text); }
-
-.log { font-size: 12px; color: var(--dim); max-height: 200px; overflow-y: auto; white-space: pre-wrap; line-height: 1.6; font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace; }
-.log .ok { color: var(--accent2); }
-.log .warn { color: var(--warn); }
-.log .err { color: #ef4444; }
-
-button { background: var(--accent); color: white; border: none; padding: 10px 24px; border-radius: 6px; font-family: inherit; font-size: 13px; cursor: pointer; font-weight: 600; }
-button:hover { filter: brightness(1.1); }
-button.secondary { background: var(--accent2); }
-button:disabled { opacity: 0.4; cursor: not-allowed; }
-
-.progress { height: 4px; background: var(--border); border-radius: 2px; margin: 16px 0; overflow: hidden; }
-.progress-bar { height: 100%; background: var(--accent); transition: width 0.3s; border-radius: 2px; }
-
-.hidden { display: none !important; }
-
-/* ── Summary line ── */
-#summaryLine { font-size: 14px; color: var(--text); margin-bottom: 12px; font-weight: 500; }
-
-/* ── Issue Review ── */
-#issueNav { display:flex; align-items:center; gap:8px; flex-wrap:wrap; padding:8px 12px; background:rgba(239,68,68,0.07); border:1px solid rgba(239,68,68,0.2); border-radius:6px; margin-bottom:12px; font-size:12px; }
-#issueNav.no-issues { background:rgba(16,185,129,0.07); border-color:rgba(16,185,129,0.2); }
-.fl-cnt { font-weight:700; color:var(--warn); font-size:14px; }
-.fl-cnt.ok { color:var(--accent2); }
-
-/* ── Download button ── */
-#dlXlsx { font-size: 15px; padding: 12px 32px; margin-bottom: 16px; }
-
-/* ── Tabulator overrides ── */
-#tabulatorTable { margin-bottom: 16px; }
-.tabulator .fl-badge { display:inline-flex; align-items:center; font-size:10px; padding:1px 4px; border-radius:3px; cursor:pointer; user-select:none; background:#fef3c7; color:#92400e; }
-.tabulator .tabulator-row.section-row { background: rgba(59,130,246,0.12) !important; }
-.tabulator .tabulator-row.section-row .tabulator-cell { font-weight: 600; color: var(--accent); }
-.tabulator .tabulator-row.fl-active-row .tabulator-cell { box-shadow: inset 0 0 0 2px var(--accent) !important; }
-
-/* ── Log panel ── */
-#logPanel { margin-top: 16px; border: 1px solid var(--border); border-radius: 8px; padding: 8px 16px; background: var(--surface); }
-#logPanel summary { cursor: pointer; font-size: 13px; font-weight: 500; color: var(--dim); padding: 4px 0; }
-
-footer { margin-top: 24px; font-size: 12px; color: var(--dim); }
-footer a { color: inherit; }
+:root{color-scheme:light dark;--bg:#fff;--surface:#f1f5f9;--border:#cbd5e1;--text:#0f172a;--dim:#475569;--accent:#1d4ed8;--on-accent:#fff;--ok:#047857;--warn-bg:#fef3c7;--warn:#92400e;--err:#b91c1c;--focus:#1d4ed8}
+@media (prefers-color-scheme:dark){:root{--bg:#0b1220;--surface:#162033;--border:#334155;--text:#e2e8f0;--dim:#a8b3c4;--accent:#60a5fa;--on-accent:#0b1220;--ok:#34d399;--warn-bg:#422006;--warn:#fcd34d;--err:#fca5a5;--focus:#93c5fd}}
+*{box-sizing:border-box;margin:0}
+html{-webkit-text-size-adjust:100%}
+body{font:16px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--text);padding:0 16px 32px}
+:focus-visible{outline:3px solid var(--focus);outline-offset:2px;border-radius:4px}
+.skip{position:absolute;left:-999px;top:8px;background:var(--accent);color:var(--on-accent);padding:8px 12px;border-radius:6px;z-index:10}
+.skip:focus{left:8px}
+header.top{max-width:1100px;margin:0 auto;padding:20px 0 12px;display:flex;flex-wrap:wrap;gap:12px 24px;align-items:center;justify-content:space-between}
+.brand h1{font-size:1.5rem;line-height:1.2}
+.brand p{color:var(--dim);font-size:.95rem;max-width:34rem}
+.prefs{display:flex;flex-wrap:wrap;gap:8px 16px;align-items:center}
+.seg{display:inline-flex;border:1px solid var(--border);border-radius:8px;overflow:hidden}
+.seg label{position:relative;cursor:pointer}
+.seg input{position:absolute;opacity:0;inset:0;cursor:pointer}
+.seg span{display:block;padding:8px 14px;font-size:.9rem;min-height:40px;line-height:24px}
+.seg input:checked+span{background:var(--accent);color:var(--on-accent);font-weight:600}
+.seg label:focus-within{outline:3px solid var(--focus);outline-offset:-3px}
+.lang button{background:none;border:1px solid var(--border);color:var(--text);padding:8px 12px;min-height:40px;font:inherit;font-size:.9rem;cursor:pointer}
+.lang button:first-child{border-radius:8px 0 0 8px}.lang button:last-child{border-radius:0 8px 8px 0;border-left:0}
+.lang button[aria-pressed=true]{background:var(--accent);color:var(--on-accent);font-weight:600}
+main{max-width:1100px;margin:0 auto}
+#modeHint{color:var(--dim);font-size:.85rem;margin-bottom:16px}
+#notice{margin:0 0 12px;padding:10px 14px;border-radius:8px;background:var(--surface);border:1px solid var(--border)}
+#notice[data-kind=error]{border-color:var(--err);color:var(--err)}
+#dropzone{position:relative;border:2px dashed var(--border);border-radius:14px;padding:44px 20px;text-align:center;background:var(--surface);transition:border-color .15s}
+#dropzone:hover,#dropzone.dragover,#dropzone:focus-within{border-color:var(--accent)}
+#dropzone:focus-within{outline:3px solid var(--focus);outline-offset:3px}
+#dropzone input{position:absolute;inset:0;width:100%;height:100%;opacity:0;cursor:pointer}
+#dropzone .big{font-size:1.2rem;font-weight:600}
+#dropzone .sub{color:var(--dim)}
+.btn{background:var(--accent);color:var(--on-accent);border:0;border-radius:8px;padding:10px 20px;min-height:44px;font:inherit;font-weight:600;cursor:pointer}
+.btn:hover{filter:brightness(1.08)}.btn:disabled{opacity:.5;cursor:not-allowed}
+.btn.quiet{background:none;color:var(--accent);border:1px solid var(--accent)}
+.row{display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:center;margin-top:16px;position:relative;z-index:1}
+.facts{display:grid;gap:8px;margin:16px 0 0;color:var(--dim);font-size:.9rem}
+.facts p{display:flex;gap:8px;align-items:flex-start}
+.facts svg{flex:none;margin-top:3px}
+.seo{margin-top:40px;display:grid;gap:28px}
+.seo h2{font-size:1.15rem;margin-bottom:8px}
+.seo ol,.seo ul{padding-left:1.2rem;display:grid;gap:6px}
+.seo details{border:1px solid var(--border);border-radius:8px;padding:10px 14px;margin-top:8px}
+.seo summary{cursor:pointer;font-weight:600;min-height:28px}
+.seo details p{margin-top:8px;color:var(--dim)}
+footer{max-width:1100px;margin:32px auto 0;color:var(--dim);font-size:.85rem}
+footer a{color:inherit}
+[hidden]{display:none!important}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
 </style>
 </head>
-<body>
-<main>
+<body data-stage="start" data-mode="guided">
+<a class="skip" href="#main" data-i18n="skip">Bỏ qua đến nội dung chính</a>
 
-<h1>CheepTable</h1>
-<p class="subtitle">Convert Vietnamese PDF tables to Excel</p>
-
-<div id="dropzone">
-  <input type="file" id="fileInput" accept=".pdf" aria-label="Choose a PDF file">
-  <p><strong>Drop PDF here</strong> or click to browse</p>
-  <div style="margin-top: 12px;">
-    <button onclick="event.stopPropagation(); loadSamplePDF()" style="background: var(--accent2); padding: 8px 16px; font-size: 12px; position: relative; z-index: 2;">
-      Try Sample PDF
-    </button>
-    <span style="font-size: 11px; color: var(--dim); margin-left: 8px;">Test with Vietnamese construction pricing table</span>
+<header class="top">
+  <div class="brand">
+    <h1>CheepTable</h1>
+    <p>Chuyển bảng trong PDF và ảnh tiếng Việt sang Excel, ngay trong trình duyệt.</p>
   </div>
-</div>
-
-<div id="progressPanel" class="hidden">
-  <div class="progress"><div class="progress-bar" id="pbar" style="width:0%"></div></div>
-  <div style="margin-top: 8px; text-align: center;">
-    <button id="cancelBtn" onclick="cancelProcessing()" style="background: #ef4444; padding: 6px 16px; font-size: 12px;">
-      Cancel Processing
-    </button>
-    <div id="progressText" style="font-size: 12px; color: var(--dim); margin-top: 4px;">Processing...</div>
+  <div class="prefs">
+    <div class="seg" role="radiogroup" aria-labelledby="modeLabel">
+      <span id="modeLabel" class="sr" style="position:absolute;left:-999px" data-i18n="modeLabel">Cách hiển thị</span>
+      <label><input type="radio" name="mode" value="simple"><span data-i18n="modeSimple">Đơn giản</span></label>
+      <label><input type="radio" name="mode" value="guided" checked><span data-i18n="modeGuided">Từng bước</span></label>
+      <label><input type="radio" name="mode" value="workbench"><span data-i18n="modeWorkbench">Đối chiếu</span></label>
+    </div>
+    <div class="lang" role="group" aria-label="Ngôn ngữ / Language">
+      <button type="button" data-lang-btn="vi" aria-pressed="true">Tiếng Việt</button><button type="button" data-lang-btn="en" aria-pressed="false">English</button>
+    </div>
   </div>
-</div>
+</header>
 
-<div id="resultPanel" class="hidden">
-  <div id="summaryLine"></div>
-  <div id="issueNav" class="hidden"></div>
-  <button id="dlXlsx" class="secondary" disabled>Download Excel (.xlsx)</button>
-  <div id="tabulatorTable"></div>
-</div>
+<main id="main" tabindex="-1">
+  <p id="modeHint"></p>
+  <p id="notice" role="status" hidden></p>
 
-<div id="logPanel" class="hidden">
-  <details>
-    <summary>Processing Log</summary>
-    <div class="log" id="log"></div>
-  </details>
-</div>
+  <section id="stage-start" aria-label="Chọn tệp">
+    <div id="dropzone">
+      <input type="file" id="fileInput" accept=".pdf,.PDF,application/pdf,image/jpeg,image/png,image/webp" aria-label="Chọn tệp PDF hoặc ảnh" data-i18n-attr="aria-label:dropMain">
+      <p class="big" data-i18n="dropMain">Kéo tệp PDF hoặc ảnh vào đây</p>
+      <p class="sub" data-i18n="dropOr">hoặc bấm để chọn tệp</p>
+      <div class="row"><button type="button" class="btn quiet" id="sampleBtn" data-i18n="sampleBtn">Thử với tệp mẫu</button></div>
+    </div>
+    <div class="facts">
+      <p><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="3" y="7" width="10" height="7" rx="1.5"/><path d="M5 7V5a3 3 0 0 1 6 0v2"/></svg><span data-i18n="privacy">Tệp không rời khỏi máy bạn: mọi xử lý diễn ra ngay trong trình duyệt.</span></p>
+      <p><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M8 2v8m0 0 3-3m-3 3L5 7M3 13h10"/></svg><span data-i18n="sizeNote" data-mb="41">Lần đầu cần tải khoảng 41 MB mô hình nhận dạng (một lần, được lưu trong trình duyệt).</span></p>
+    </div>
+  </section>
 
+  <section id="stage-progress" data-progress hidden aria-label="Tiến độ"></section>
+  <section id="stage-result" hidden aria-label="Kết quả"></section>
+
+  <article class="seo" id="about">
+    <section>
+      <h2>Cách hoạt động</h2>
+      <ol>
+        <li>Chọn tệp PDF hoặc ảnh chụp bảng (bảng tiên lượng, báo cáo tài chính, bảng giá…).</li>
+        <li>Trình duyệt nhận dạng chữ tiếng Việt và dựng lại các hàng, cột của bảng. Tiến độ hiện từng ô một.</li>
+        <li>Xem lại những ô được đánh dấu nghi ngờ, sửa nếu cần, rồi tải tệp Excel (.xlsx).</li>
+      </ol>
+    </section>
+    <section>
+      <h2>Quyền riêng tư</h2>
+      <p>Không có máy chủ xử lý tài liệu. Tệp của bạn được đọc và nhận dạng trong chính trình duyệt này, nên có thể dùng cho tài liệu nội bộ. Chỉ các tệp mô hình nhận dạng được tải về một lần rồi lưu lại.</p>
+    </section>
+    <section>
+      <h2>Câu hỏi thường gặp</h2>
+      <details><summary>Tệp của tôi có bị tải lên máy chủ không?</summary><p>Không. Việc nhận dạng chạy hoàn toàn trong trình duyệt của bạn. Chỉ có các tệp mô hình được tải về một lần ở lần dùng đầu tiên.</p></details>
+      <details><summary>Có đọc được bảng không có đường kẻ không?</summary><p>Có. Bảng có đường kẻ được cắt theo ô; bảng không có đường kẻ được đọc theo từng dòng chữ rồi ghép thành hàng và cột. Luôn nên kiểm tra các ô được đánh dấu.</p></details>
+      <details><summary>Vì sao lần đầu tải lâu hơn?</summary><p>Trình duyệt cần tải khoảng 40 MB mô hình nhận dạng. Sau đó chúng được lưu lại nên các lần sau mở ngay.</p></details>
+      <details><summary>Dùng được trên điện thoại không?</summary><p>Dùng được với tệp nhỏ. Tài liệu nhiều trang nên mở trên máy tính để xử lý nhanh hơn.</p></details>
+    </section>
+  </article>
 </main>
 
 <footer><a href="https://dzungngo.com">dzungngo.com</a></footer>
-
-<script src="boq-utils.js"></script>
-<script src="boq-viet.js"></script>
-<script src="boq-ocr.js"></script>
-<script src="boq-decode.js"></script>
-<script src="boq-pool.js"></script>
-<script src="boq-onnx.js"></script>
-<script src="boq-grid.js"></script>
-<script src="boq-arith.js"></script>
-<script src="boq-sequence.js"></script>
-<script src="boq-extract.js"></script>
-<script src="boq-ui.js"></script>
-<script src="boq-review.js"></script>
-<script src="boq-export.js"></script>
-<script>
-// ── Config ──
-const LINE_TOLERANCE = 3;
-const MIN_LINE_LEN = 10;
-const CELL_PAD = 1.5;
-const OCR_SCALE = 200 / 72;
-const CELL_MATCH_MARGIN_PX   = 30;
-const ORPHAN_NEAREST_CELL_PX = 100;
-const ROW_Y_THRESHOLD_PX     = 10;
-
-pdfjsLib.GlobalWorkerOptions.workerSrc =
-  'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
-
-// ── Perf stubs ──
-const perfStart = () => {};
-const perfEnd = () => {};
-
-// ── Stubs for globals referenced by un-modified files (boq-extract.js, boq-ocr.js, boq-viet.js) ──
-const OCR_SERVER_URL = '';
-let ocrServerAvailable = false;
-let vpsApiAvailable = false;
-let diacriticCache = {};
-let debugData = { ocrWords: [], ocrLines: [], pdfMetadata: null };
-function authHeaders() { return {}; }
-function clearAuthToken() {}
-
-// ── State ──
-let extractedRows = [];
-let currentOCRPage = 0;
-let totalPDFPages = 0;
-let opencvReady = false;
-let syllableCorrector = null;
-let pdfDoc = null;
-
-// ── Review / Flag State ──
-let rowFlags    = {};
-let flagList    = [];
-let currFlagIdx = -1;
-
-let processingCancelled = false;
-
-// ── OpenCV.js Initialization ──
-// cv.imread exists before the WASM runtime has started, so it is no readiness signal.
-// This build's cv.then() fires once the runtime is up, or at once if it already is.
-function onOpenCvReady() {
-  cv.then(() => {
-    opencvReady = true;
-    log('OpenCV.js loaded', 'ok');
-  });
-}
-
-let onnxBackendAvailable = null;
-
-// ── Viz stub ──
-function showVizPanel() {}
-
-// ── UI Refs ──
-const $ = id => document.getElementById(id);
-const dropzone = $('dropzone');
-const fileInput = $('fileInput');
-const logEl = $('log');
-
-// ── Logging ──
-function log(msg, cls = '') {
-  $('logPanel').classList.remove('hidden');
-  const span = document.createElement('span');
-  span.className = cls;
-  span.textContent = msg + '\n';
-  logEl.appendChild(span);
-  logEl.scrollTop = logEl.scrollHeight;
-}
-
-// ── Sample PDF ──
-async function loadSamplePDF() {
-  log('Loading sample PDF...', 'ok');
-  try {
-    const response = await fetch('sample.pdf');
-    if (!response.ok) {
-      throw new Error('Sample PDF not found. Please upload your own PDF.');
-    }
-    const blob = await response.blob();
-    const file = new File([blob], 'sample.pdf', { type: 'application/pdf' });
-    await handleFile(file);
-  } catch (err) {
-    log('Error loading sample: ' + err.message, 'err');
-    alert('Sample PDF not found.\n\nPlease upload your own PDF file.');
-  }
-}
-
-// ── Cancel Processing ──
-function cancelProcessing() {
-  processingCancelled = true;
-  stopOcrPool();   // workers stop at once; reads in flight fail and the page loop sees the cancel flag
-  log('Processing cancelled by user', 'warn');
-  $('progressPanel').classList.add('hidden');
-  $('pbar').style.width = '0%';
-  alert('Processing cancelled.\n\nYou can upload a different file.');
-}
-
-// ── File Input ──
-dropzone.addEventListener('dragover', e => { e.preventDefault(); dropzone.classList.add('dragover'); });
-dropzone.addEventListener('dragleave', () => dropzone.classList.remove('dragover'));
-dropzone.addEventListener('drop', e => { e.preventDefault(); dropzone.classList.remove('dragover'); handleFile(e.dataTransfer.files[0]); });
-fileInput.addEventListener('change', e => handleFile(e.target.files[0]));
-
-async function handleFile(file) {
-  processingCancelled = false;
-
-  if (!file) {
-    log('No file selected', 'err');
-    return;
-  }
-
-  if (!file.name.endsWith('.pdf')) {
-    log('Error: Please select a PDF file', 'err');
-    alert('This app only works with PDF files. Please select a .pdf file.');
-    return;
-  }
-
-  const sizeMB = file.size / (1024 * 1024);
-  if (sizeMB > 50) {
-    log('Error: File too large (' + sizeMB.toFixed(1) + ' MB)', 'err');
-    alert('File is too large (' + sizeMB.toFixed(1) + ' MB).\n\nMaximum file size: 50 MB');
-    return;
-  }
-
-  if (sizeMB > 10) {
-    log('Warning: Large file (' + sizeMB.toFixed(1) + ' MB) - processing may take several minutes', 'warn');
-  }
-
-  log('Loading: ' + file.name + ' (' + (file.size/1024).toFixed(0) + ' KB)');
-  $('progressPanel').classList.remove('hidden');
-  $('resultPanel').classList.add('hidden');
-
-  try {
-    const buf = await file.arrayBuffer();
-    await extractPDF(buf);
-  } catch (err) {
-    if (processingCancelled) {
-      log('Processing cancelled', 'warn');
-      return;
-    }
-    log('Fatal error: ' + err.message, 'err');
-    alert('Processing failed: ' + err.message + '\n\nPlease try:\n1. A smaller PDF file\n2. Refreshing the page\n3. Using a different browser');
-    console.error(err);
-    $('progressPanel').classList.add('hidden');
-  } finally {
-    stopOcrPool();   // cancel, error or success: the workers (about 250 MB each) must not outlive the job
-  }
-}
-
-// ── Core Pipeline ──
-async function extractPDF(buffer) {
-  const pdf = await pdfjsLib.getDocument({ data: buffer }).promise;
-  pdfDoc = pdf;
-  const numPages = pdf.numPages;
-  totalPDFPages = numPages;
-  log('PDF loaded: ' + numPages + ' pages', 'ok');
-
-  let allTextItems = [];
-  let allLines = [];
-  let totalOps = 0;
-  let allOcrWords = [];
-  let allOcrLines = [];
-  let allBorderCells = [];
-  const pageCanvases = {};
-  let ocrPageCount = 0;
-  let totalConfidence = 0;
-  let totalOcrWords = 0;
-
-  // ── ETA tracking ──
-  const pageTimings = [];
-
-  for (let p = 1; p <= numPages; p++) {
-    if (processingCancelled) {
-      log('Processing cancelled', 'warn');
-      $('progressPanel').classList.add('hidden');
-      return;
-    }
-
-    const pageStartTime = performance.now();
-
-    // ETA display
-    if (pageTimings.length === 0) {
-      $('progressText').textContent = 'Processing page ' + p + ' of ' + numPages + '...';
-    } else {
-      const avgMs = pageTimings.reduce((a, b) => a + b, 0) / pageTimings.length;
-      const remainingPages = numPages - p + 1;
-      const etaMs = avgMs * remainingPages;
-      const etaStr = formatETA(etaMs);
-      $('progressText').textContent = 'Page ' + p + '/' + numPages + ' — ~' + etaStr + ' remaining';
-    }
-
-    $('pbar').style.width = ((p - 1) / numPages * 85) + '%';
-
-    const page = await pdf.getPage(p);
-    const vp = page.getViewport({ scale: 1.0 });
-    const pageH = vp.height;
-
-    const tc = await page.getTextContent();
-    const pageText = tc.items.filter(it => it.str.trim()).map(it => ({
-      str: it.str,
-      x: it.transform[4],
-      y: pageH - it.transform[5],
-      width: it.width,
-      height: Math.abs(it.transform[3]) || Math.abs(it.transform[0]) || 10,
-      page: p
-    }));
-
-    if (pageText.length > 0) {
-      const opList = await page.getOperatorList();
-      totalOps += opList.fnArray.length;
-      const pageLines = extractLines(opList, pageH, p);
-      log('  Page ' + p + ': ' + pageText.length + ' text spans, ' + pageLines.length + ' lines (native)');
-      allTextItems.push(...pageText);
-      allLines.push(...pageLines);
-    } else {
-      // Image-based page: ONNX OCR
-      if (!onnxBackendAvailable) {
-        log('Initializing ONNX models (first time ~41-43 MB download)...', 'warn');
-        const ok = await initOnnxOCR((msg) => {
-          $('progressText').textContent = msg;
-        });
-        if (!ok) throw new Error('ONNX initialization failed');
-        onnxBackendAvailable = true;
-      }
-
-      await startOcrPool();
-      const canvas = await renderPageToCanvas(page, OCR_SCALE);
-      pageCanvases[p] = canvas;
-
-      // Ruled tables: read the cells of the drawn grid directly. Anything else: text detector.
-      let borderData = { cells: [], lines: { horizontal: [], vertical: [] } };
-      const grid = opencvReady ? await findGrid(canvas) : null;
-      if (!grid && opencvReady) {
-        borderData = await detectTableBorders(canvas);
-      }
-
-      currentOCRPage = p;
-
-      try {
-        const ocrResult = grid ? await ocrPageWithGrid(canvas, p, grid) : await ocrPageWithOnnx(canvas, p);
-        if (grid) {
-          log('  Page ' + p + ': ruled grid ' + (grid.xs.length - 1) + ' columns x ' + (grid.ys.length - 1) + ' rows', 'ok');
-          borderData = { cells: ocrResult.cells, lines: { horizontal: [], vertical: [] } };
-        }
-        ocrPageCount++;
-
-        const pageWords = ocrResult.words;
-        const pageOcrLines = ocrResult.lines;
-        totalOcrWords += pageWords.length;
-        const pageConf = pageWords.length > 0
-          ? pageWords.reduce((s, w) => s + w.confidence, 0) / pageWords.length
-          : 0;
-        totalConfidence += pageConf * pageWords.length;
-
-        log('  Page ' + p + ': ' + pageWords.length + ' OCR words, ' + pageOcrLines.length + ' lines (avg conf: ' + pageConf.toFixed(1) + '%)' , 'ok');
-        allOcrWords.push(...pageWords);
-        allOcrLines.push(...pageOcrLines);
-
-        if (borderData && borderData.cells.length > 0) {
-          allBorderCells.push(...borderData.cells.map(cell => ({
-            x: cell.x / OCR_SCALE,
-            y: cell.y / OCR_SCALE,
-            width: cell.width / OCR_SCALE,
-            height: cell.height / OCR_SCALE,
-            area: cell.area / (OCR_SCALE * OCR_SCALE),
-            row: cell.row,
-            col: cell.col,
-            page: p
-          })));
-        }
-      } catch (error) {
-        log('  Page ' + p + ': OCR error - ' + error.message, 'err');
-        console.error('[OCR Error] Page ' + p + ':', error);
-        continue;
-      }
-    }
-
-    page.cleanup();
-    pageTimings.push(performance.now() - pageStartTime);
-  }
-
-  stopOcrPool();
-
-  // Pass 2: Table extraction
-  $('pbar').style.width = '85%';
-  $('progressText').textContent = 'Building table...';
-
-  let rows;
-  if (allOcrWords.length > 0) {
-    log('OCR total: ' + allOcrWords.length + ' words across ' + ocrPageCount + ' pages', 'ok');
-    if (allBorderCells.length > 0) {
-      log('Border detection: ' + allBorderCells.length + ' cells detected', 'ok');
-    }
-    rows = await ocrTableExtract(allOcrLines, allOcrWords, allBorderCells, pageCanvases);
-    const seq = repairNumbering(rows).fixed;
-    if (seq > 0) log('Fixed ' + seq + ' misread row numbers (they count up by one)', 'ok');
-    const { fixed } = repairArithmetic(rows);
-    if (fixed > 0) log('Fixed misread numbers in ' + fixed + ' rows (qty x price = total)', 'ok');
-  } else if (allLines.length > 20) {
-    log('Using LATTICE mode (lines detected)', 'ok');
-    rows = await latticeExtract(allTextItems, allLines, numPages);
-  } else {
-    log('Using alternative table detection method...', 'ok');
-    rows = await textClusterExtract(allTextItems);
-  }
-
-  $('pbar').style.width = '95%';
-  extractedRows = rows;
-
-  const dataRows = rows.filter(r => r.type === 'data').length;
-  const sectionRows = rows.filter(r => r.type === 'section').length;
-  const avgConf = totalOcrWords > 0 ? (totalConfidence / totalOcrWords).toFixed(1) : null;
-
-  showStats({
-    pages: numPages,
-    rows: rows.length,
-    dataRows,
-    sectionRows
-  });
-  log('Extracted ' + rows.length + ' rows (' + dataRows + ' data, ' + sectionRows + ' sections)', 'ok');
-
-  renderPreview(rows);
-  $('pbar').style.width = '100%';
-  setTimeout(() => $('progressPanel').classList.add('hidden'), 500);
-}
-
-// ── ETA Formatter ──
-function formatETA(ms) {
-  const totalSec = Math.round(ms / 1000);
-  if (totalSec < 60) return totalSec + 's';
-  const min = Math.floor(totalSec / 60);
-  const sec = totalSec % 60;
-  if (min < 60) return min + ' min ' + (sec > 0 ? sec + 's' : '');
-  const hr = Math.floor(min / 60);
-  return hr + 'h ' + (min % 60) + 'min';
-}
-
-// ── Init ──
-setupExport();
-log('Ready. Drop a PDF to begin.');
-
-</script>
-<!-- OpenCV 4.13.0, official build: js/bin/opencv.js inside
-     https://github.com/opencv/opencv/releases/download/4.13.0/opencv-4.13.0-docs.zip
-     (opencv.js sha256 63366510248adf3a7eddf3e793dd825404efb7df3749f4d6f8557c7fa4ca8aa0).
-     Self-hosted because docs.opencv.org now answers browsers with a Cloudflare challenge.
-     Placed after the inline script so onOpenCvReady exists when onload fires. -->
-<script async src="opencv.js" onload="onOpenCvReady();"></script>
+<noscript><p style="max-width:1100px;margin:16px auto;padding:12px;border:1px solid #b91c1c">CheepTable cần JavaScript để nhận dạng bảng ngay trong trình duyệt. / CheepTable needs JavaScript to run OCR in your browser.</p></noscript>
+<script src="app.js" defer></script>
 </body>
 </html>

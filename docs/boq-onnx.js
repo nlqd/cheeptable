@@ -59,14 +59,34 @@ let onnxLoading = false;
 
 // ── Model Loading ──
 
+// Download with byte progress so the page can show a real bar. A response without a usable Content-Length is returned as is.
+async function _fetchWithProgress(url) {
+  const resp = await fetch(url);
+  if (!resp.ok) throw new Error(`HTTP ${resp.status} fetching ${url}`);
+  const total = Number(resp.headers.get('content-length')) || 0;
+  if (!resp.body || !total) return resp;
+  const reader = resp.body.getReader();
+  const chunks = [];
+  let loaded = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    chunks.push(value);
+    loaded += value.length;
+    window.CT?.emit('model:progress', { url, loaded: Math.min(loaded, total), total });
+  }
+  return new Response(new Blob(chunks), { status: 200, headers: { 'Content-Type': resp.headers.get('content-type') || 'application/octet-stream' } });
+}
+
 async function _loadCached(url) {
   try {
     const cache = await caches.open(CACHE_NAME);
     let resp = await cache.match(url);
     if (!resp) {
-      resp = await fetch(url);
-      if (!resp.ok) throw new Error(`HTTP ${resp.status} fetching ${url}`);
+      resp = await _fetchWithProgress(url);
       await cache.put(url, resp.clone());
+    } else {
+      window.CT?.emit('model:progress', { url, loaded: 1, total: 1, cached: true });
     }
     return resp;
   } catch (e) {
@@ -406,6 +426,7 @@ function _splitByProjection(canvas, box, expectedRowH) {
 
 // The text detector (2.4 MB) is only needed on pages without a ruled grid, so it is fetched the first time one appears.
 async function _detectTextBoxes(canvas) {
+  if (window.CT?.ensureClipper) await CT.ensureClipper();   // polygon offsetting for the detector, loaded only when a page needs it
   if (!_detSession) _detSession = await _modelSession(ONNX_MODELS.det, { executionProviders: ['wasm'] });
   const pre = _preprocessDetection(canvas);
 
@@ -588,10 +609,12 @@ function _preprocessVietOCR(canvas, x0, y0, x1, y1) {
 }
 
 // All crops of a page at once: with a worker pool they are read in parallel, otherwise one after another.
-async function _recognizeBoxes(canvas, boxes) {
-  if (_pool) return Promise.all(boxes.map(b => _recognizeBox(canvas, b)));
+// onRead(i, result) is called as each crop finishes, so the page can show reads as they happen.
+async function _recognizeBoxes(canvas, boxes, onRead) {
+  const notify = (i, r) => { if (onRead) onRead(i, r); return r; };
+  if (_pool) return Promise.all(boxes.map((b, i) => _recognizeBox(canvas, b).then(r => notify(i, r))));
   const out = [];
-  for (const b of boxes) out.push(await _recognizeBox(canvas, b));
+  for (let i = 0; i < boxes.length; i++) out.push(notify(i, await _recognizeBox(canvas, boxes[i])));
   return out;
 }
 
@@ -646,7 +669,11 @@ async function ocrPageWithOnnx(canvas, pageNum) {
   const words = [];
 
   const usable = boxes.filter(b => b.x1 - b.x0 >= 5 && b.y1 - b.y0 >= 5);
-  const reads = await _recognizeBoxes(canvas, usable);
+  window.CT?.emit('page:reads', { page: pageNum, total: usable.length });
+  let readCount = 0;
+  const reads = await _recognizeBoxes(canvas, usable, (i, r) => {
+    window.CT?.emit('read', { page: pageNum, done: ++readCount, total: usable.length, text: r.text, conf: r.confidence, box: usable[i] });
+  });
 
   usable.forEach((box, i) => {
     const { text: rawText, confidence } = reads[i];

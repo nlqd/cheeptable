@@ -1001,6 +1001,13 @@ async function reOcrEmptyCellsOnnx(tableRows, pageCanvases) {
 }
 
 // Border-based extraction using OpenCV detected cells
+function wordsBox(words) {
+  if (!words || !words.length) return undefined;
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  for (const w of words) { x0 = Math.min(x0, w.x); y0 = Math.min(y0, w.y); x1 = Math.max(x1, w.x1); y1 = Math.max(y1, w.y1); }
+  return { x0: x0 * OCR_SCALE, y0: y0 * OCR_SCALE, x1: x1 * OCR_SCALE, y1: y1 * OCR_SCALE };
+}
+
 async function borderBasedExtract(ocrWords, borderCells, pageCanvases = {}) {
   console.log(`[borderBasedExtract] Starting with ${ocrWords.length} words and ${borderCells.length} cells`);
 
@@ -1054,6 +1061,8 @@ async function borderBasedExtract(ocrWords, borderCells, pageCanvases = {}) {
         // Keep word bboxes for numeric columns (qty/price/total) so garbage cells
         // can be re-OCR'd with a targeted crop.
         _words: (ci >= 3 && ci <= 5) ? cell.words : undefined,
+        // Where the cell's text sits on the page image (pixels at OCR_SCALE), for the side-by-side view.
+        _box: wordsBox(cell.words),
         // Keep cell boundary (PDF points) for empty-cell re-OCR.
         _cellBounds: (ci >= 3 && ci <= 5) ? {
           x:  colLefts[ci] ?? colLefts[colLefts.length - 1],
