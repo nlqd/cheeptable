@@ -53,13 +53,15 @@ def read_cell(gray):
     return " ".join(lines)
 
 
-def extract(pdf_path, pages=None, scale=2):
+def extract(pdf_path, pages=None, scale=2, transform=None):
     pdf = pdfium.PdfDocument(pdf_path)
     rows = []
     for p in range(len(pdf)):
         if pages and (p + 1) not in pages:
             continue
         img = np.array(pdf[p].render(scale=scale).to_pil().convert("L"))
+        if transform:
+            img = transform(img)
         ys, xs, ver = grid.find_grid2(img) if V2 else (*grid.find_grid(img), None)
         if len(xs) < 3 or len(ys) < 3:
             continue
