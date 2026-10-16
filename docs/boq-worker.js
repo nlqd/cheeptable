@@ -24,13 +24,15 @@ self.onmessage = async ({ data }) => {
       const opts = { executionProviders: ['wasm'] };
       const session = (url) => modelBytes(data.cacheName, url).then(b => ort.InferenceSession.create(b, opts));
       const u = data.decoder;                              // { plain } or { init, step }
-      encSession = await session(data.encoderUrl);
+      encSession = data.encoderUrl ? await session(data.encoderUrl) : null;   // null: the page encodes on the GPU
       dec = u.plain ? { plain: await session(u.plain) } : { init: await session(u.init), step: await session(u.step) };
       vocab = data.vocab;
       self.postMessage({ type: 'ready' });
     } else if (data.type === 'read') {
       const tensor = new ort.Tensor('float32', data.data, data.dims);
-      const { text, confidence, ms } = await vietocrDecode(encSession, dec, tensor, vocab);
+      const { text, confidence, ms } = data.kind === 'memory'
+        ? await vietocrDecodeMemory(dec, tensor, vocab)
+        : await vietocrDecode(encSession, dec, tensor, vocab);
       self.postMessage({ type: 'result', id: data.id, text, confidence, ms });
     }
   } catch (e) {

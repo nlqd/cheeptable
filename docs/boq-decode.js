@@ -10,19 +10,25 @@ const VIETOCR_SOS = 1, VIETOCR_EOS = 2, VIETOCR_MAX_LEN = 128;
 // hillclimb/export_decoder_kv.py; about 2.5x faster on a whole read, same output).
 async function vietocrDecode(encSession, dec, tensor, vocab, onYield) {
   const t0 = performance.now();
-  const encResult = await encSession.run({ image: tensor });
-  const memory = encResult.memory;
+  const memory = (await encSession.run({ image: tensor })).memory;
   const encMs = performance.now() - t0;
+  const result = await vietocrDecodeMemory(dec, memory, vocab, onYield);
+  memory.dispose();
+  result.ms.enc = encMs;
+  result.ms.width = tensor.dims[3];
+  return result;
+}
 
+// Decode from an encoder output (float32 [T,1,256]); the encoder may have run on the GPU or on another thread.
+async function vietocrDecodeMemory(dec, memory, vocab, onYield) {
+  const t0 = performance.now();
   const { tokenIds, probs } = dec.plain
     ? await _decodePlain(dec.plain, memory, onYield)
     : await _decodeCached(dec, memory, onYield);
-  memory.dispose();
-
   return {
     text: tokenIds.slice(1).map(id => vocab[id] || '').join(''),
     confidence: probs.length ? probs.reduce((a, b) => a + b, 0) / probs.length : 0,
-    ms: { enc: encMs, dec: performance.now() - t0 - encMs, steps: tokenIds.length, width: tensor.dims[3] },
+    ms: { enc: 0, dec: performance.now() - t0, steps: tokenIds.length, width: 0 },
   };
 }
 
@@ -78,4 +84,4 @@ async function _decodeCached(dec, memory, onYield) {
   return { tokenIds, probs };
 }
 
-if (typeof module !== 'undefined') module.exports = { vietocrDecode };
+if (typeof module !== 'undefined') module.exports = { vietocrDecode, vietocrDecodeMemory };

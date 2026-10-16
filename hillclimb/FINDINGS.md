@@ -58,7 +58,8 @@ Rows with all three numbers right: contract 0.947 -> 0.968, synthetic 0.950 -> 0
 ## int8 encoder (`quant_encoder.py`)
 Static QDQ int8, first conv kept float: 29.8 MB against 55 MB fp16. Full contract (calibrated on the synthetic doc, so the contract is held out): numbers 0.945 vs 0.947 fp32, description error 0.065 vs 0.065. Dynamic int8 emits ConvInteger, which onnxruntime-web (WASM) does not implement, so it cannot be used. Quantizing only the convolutions saves almost nothing (53 MB). The int8 file must be uploaded to the model repo as `vietocr/encoder_int8.onnx`; until it exists the app falls back to fp16. Staged in `models_out/` (not committed).
 
-## Whole app, headless Chrome, WASM (grid path + int8 encoder + number repair)
+## Whole app, headless Chrome, WASM (grid path + number repair)
+CORRECTION: the whole-app runs in this file up to the speed section used the hosted fp16 encoder, not the int8 one. The harness set the int8 URL with a statement (`a = b; 1`) that `rodney js` rejects as a syntax error, the error was ignored, the int8 file was not found on the hosted repo, and the app fell back to fp16. The int8 accuracy numbers above (section "int8 encoder") come from the offline Python evaluation and are valid; the real whole-app int8 run is in the speed section. The harness now stops on any failed override.
 | document | rows found | numbers all right | description error |
 |---|---|---|---|
 | contract, 11 pages (old app, March run) | 454/473 | 0.833 | 0.395 |
@@ -89,6 +90,20 @@ Profile of one page after the pool (307 reads, 176 worker-seconds): encoder 46%,
 - int8 decoder: full contract 18% faster but description exact 0.457 -> 0.364 and held-out error 0.026 -> 0.068. Rejected.
 - fp16 weights with fp32 compute (`fp16_storage.py`: fp16 initializer + Cast, folded when the session loads): 19% faster than the hosted fp16 decoder, bit-identical to fp32, same 20 MB.
 - Cached decoder (`export_decoder_kv.py`, adopted): the original recomputes the cross-attention projection of the whole encoder output and every earlier token at each step (about 14 ms fixed plus 0.4 ms per token). Two graphs: one computes the cross keys/values once per line, one advances a single token with cached self-attention keys/values. Checked against the original decoder (max logit difference 8.7e-05 over 25 steps). One page: decoder time 95 s -> 8 s, worker time 176 s -> 86 s. Full contract: 330 s -> 180 s, 571 rows cell-for-cell identical. The encoder is now 91% of the remaining time.
+
+## Speed, corrected and extended (all runs below apply their overrides; 11-page contract, headless Chrome, 24-core machine)
+| configuration | time | rows found | numbers all right | description error |
+|---|---|---|---|---|
+| single thread, fp16 encoder, plain decoder (original) | 29 min | 472 | 0.966 | 0.029 |
+| 6 workers, fp16 encoder, plain decoder | 5.5 min | 472 | 0.966 | 0.029 |
+| 6 workers, fp16 encoder, cached decoder | 3.0 min | 472 | 0.966 | 0.029 |
+| 6 workers, int8 encoder, cached decoder | 1.7 min | 472 | 0.960 | 0.031 |
+| WebGPU encoder (fp32 compute), 3 decode workers | 0.85 min (51 s) | 472 | 0.966 | 0.029 |
+The int8 encoder costs about 0.6 points of numbers and 0.002 of description error for half the download and 1.8x the speed. The GPU encoder equals the fp16 accuracy.
+GPU encoder (`encoder_fp16w.onnx`, fp16 weights + Cast folded at load, 55 MB): about 8 ms per line whatever the width, against 78-337 ms for int8 and 152-619 ms for fp16 on the CPU. It needs no shader-f16. It agrees with the same model run in fp32 on the CPU to within 0.0005. The decoder always stays on CPU workers (with the cache it is about 8 s of worker time per page).
+Race found on the way: creating a WebGPU session and WASM sessions at the same time failed with "multiple calls to initWasm()"; the first GPU runs silently fell back to the CPU. Sessions are now created one after another after a parallel download.
+With none of the new model files hosted (today), the app falls back to the fp16 encoder and the plain decoder with the worker pool: 2 pages in 64 s (about 6 min for 11 pages), correct output.
+`setTimeout`-based `yieldToMain` was suspected of being throttled in background tabs; replacing it with a message channel changed nothing in headless Chrome, so it was left alone.
 
 ## Not measured
 - Borderless tables: the grid path returns nothing there and the detector path runs as before; only the contract and the synthetic document (both ruled) were tested.
