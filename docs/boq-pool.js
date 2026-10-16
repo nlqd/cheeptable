@@ -65,5 +65,13 @@ class OcrPool {
 
   get size() { return this.idle.length + this.pending.size; }
 
-  close() { [...this.idle, ...[...this.pending.values()].map(e => e.worker)].forEach(w => w.terminate()); }
+  // Stops every worker. Reads still queued or running fail, so nothing waits forever on a terminated worker.
+  close() {
+    const workers = [...this.idle, ...[...this.pending.values()].map(e => e.worker)];
+    const error = new Error('OCR pool closed');
+    this.queue.splice(0).forEach(job => job.reject(error));
+    this.pending.forEach(entry => entry.job.reject(error));
+    this.pending.clear();
+    workers.forEach(w => w.terminate());
+  }
 }
