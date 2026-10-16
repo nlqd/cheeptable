@@ -12,7 +12,7 @@ import time
 
 PDF, OUT = sys.argv[1], sys.argv[2]
 MINCONF = os.environ.get("MINCONF")
-URL = "http://localhost:8080/" + os.environ.get("APP", "docs") + "/index.html"  # repo root server, so /hillclimb/vendor is reachable
+URL = os.environ.get("URL") or "http://localhost:8080/" + os.environ.get("APP", "docs") + "/index.html"  # URL=https://... tests a deployed page
 
 
 def rodney(*args, timeout=120):
