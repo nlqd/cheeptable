@@ -33,8 +33,14 @@ rodney("reload", "--hard")
 time.sleep(5)
 if os.environ.get("INT8_LOCAL"):
     js("ONNX_MODELS.encoderInt8 = '/hillclimb/models_out/vietocr/encoder_int8.onnx'; 1")
+if os.environ.get("DEC_LOCAL"):
+    js("(ONNX_MODELS.decoder = '%s', 1)" % os.environ["DEC_LOCAL"])
+if os.environ.get("KV_LOCAL"):
+    js("(ONNX_MODELS.decoderInit = '/hillclimb/models_out/vietocr/decoder_init_fp16w.onnx', ONNX_MODELS.decoderStep = '/hillclimb/models_out/vietocr/decoder_step_fp16w.onnx', 1)")
 if os.environ.get("FAKE_CORES"):
     js("(Object.defineProperty(navigator, 'hardwareConcurrency', {get: () => %s}), 1)" % os.environ["FAKE_CORES"])
+if os.environ.get("PROFILE"):
+    js("(window.__reads = [], window.__orig = _recognizeBox, _recognizeBox = async (c, b) => { const r = await window.__orig(c, b); window.__reads.push(r.ms); return r; }, 1)")
 if MINCONF:
     js('window.__minConf = ' + MINCONF)
 if os.environ.get("WASM"):
@@ -72,3 +78,6 @@ open(OUT.replace(".json", "_words.json"), "w").write(words)
 print("done in %ds, %d bytes rows, %d bytes words" % (time.time() - t0, len(rows), len(words)))
 if os.environ.get("LINES_OUT"):
     open(os.environ["LINES_OUT"], "w").write(js("JSON.stringify(window.__lines)"))
+
+if os.environ.get("PROFILE"):
+    open(os.environ["PROFILE"], "w").write(js("JSON.stringify(window.__reads)"))

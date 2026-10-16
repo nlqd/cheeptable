@@ -4,7 +4,7 @@
 
 importScripts('https://cdn.jsdelivr.net/npm/onnxruntime-web@1.22.0/dist/ort.min.js', 'boq-decode.js');
 
-let encSession = null, decSession = null, vocab = null;
+let encSession = null, dec = null, vocab = null;
 
 async function modelBytes(cacheName, url) {
   const cache = await caches.open(cacheName);
@@ -22,16 +22,16 @@ self.onmessage = async ({ data }) => {
       ort.env.wasm.wasmPaths = data.wasmPaths;
       ort.env.wasm.numThreads = 1;
       const opts = { executionProviders: ['wasm'] };
-      [encSession, decSession] = await Promise.all([
-        modelBytes(data.cacheName, data.encoderUrl).then(b => ort.InferenceSession.create(b, opts)),
-        modelBytes(data.cacheName, data.decoderUrl).then(b => ort.InferenceSession.create(b, opts)),
-      ]);
+      const session = (url) => modelBytes(data.cacheName, url).then(b => ort.InferenceSession.create(b, opts));
+      const u = data.decoder;                              // { plain } or { init, step }
+      encSession = await session(data.encoderUrl);
+      dec = u.plain ? { plain: await session(u.plain) } : { init: await session(u.init), step: await session(u.step) };
       vocab = data.vocab;
       self.postMessage({ type: 'ready' });
     } else if (data.type === 'read') {
       const tensor = new ort.Tensor('float32', data.data, data.dims);
-      const { text, confidence } = await vietocrDecode(encSession, decSession, tensor, vocab);
-      self.postMessage({ type: 'result', id: data.id, text, confidence });
+      const { text, confidence, ms } = await vietocrDecode(encSession, dec, tensor, vocab);
+      self.postMessage({ type: 'result', id: data.id, text, confidence, ms });
     }
   } catch (e) {
     self.postMessage({ type: 'error', id: data.id, message: String(e) });

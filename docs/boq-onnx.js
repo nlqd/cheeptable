@@ -12,6 +12,10 @@ const ONNX_MODELS = {
   // Runs on the WASM backend only; WebGPU keeps the fp16 encoder.
   encoderInt8: `${ONNX_MODEL_BASE}/vietocr/encoder_int8.onnx`,
   decoder: `${ONNX_MODEL_BASE}/vietocr/decoder_fp16.onnx`,
+  // Cached decoder for the WASM backend (two graphs, 19.6 MB together, same output as the plain one): weights are
+  // stored as fp16 and cast to fp32 when the session loads, which is faster on CPU than computing in fp16.
+  decoderInit: `${ONNX_MODEL_BASE}/vietocr/decoder_init_fp16w.onnx`,
+  decoderStep: `${ONNX_MODEL_BASE}/vietocr/decoder_step_fp16w.onnx`,
   vocab:   `${ONNX_MODEL_BASE}/vietocr/vocab.txt`,
 };
 const CACHE_NAME = 'boq-onnx-models-v1';
@@ -35,7 +39,8 @@ const _NUMERIC_RE  = /^[\d\s.,:()\[\]%/=+\-xX*]+$/;
 // ── State ──
 let _detSession = null;
 let _encSession = null;
-let _decSession = null;
+let _dec = null;         // { plain } or { init, step } sessions, see boq-decode.js
+let _decoderUrls = null; // the same, as URLs, for the workers
 let _vocab = null;       // array of chars, index = token id
 let _pool = null;        // OcrPool of single-threaded workers (WASM backend only), or null
 let _backend = null;     // 'webgpu' or 'wasm'
@@ -107,7 +112,7 @@ async function startOcrPool() {
   try {
     _pool = await OcrPool.create(_workerCount(), {
       wasmPaths: ort.env.wasm.wasmPaths, cacheName: CACHE_NAME,
-      encoderUrl: _encoderUrl, decoderUrl: ONNX_MODELS.decoder, vocab: _vocab,
+      encoderUrl: _encoderUrl, decoder: _decoderUrls, vocab: _vocab,
     });
   } catch (e) {
     console.warn('[ONNX] worker pool unavailable, reading on the page thread:', e);
@@ -117,6 +122,25 @@ async function startOcrPool() {
 function stopOcrPool() {
   if (_pool) _pool.close();
   _pool = null;
+}
+
+async function _createDecoder(backend, opts) {
+  const session = async (url) => {
+    const resp = await _loadCached(url);
+    if (!resp.ok) throw new Error(`HTTP ${resp.status} fetching ${url}`);
+    return ort.InferenceSession.create(await resp.arrayBuffer(), opts);
+  };
+  if (backend === 'wasm') {
+    try {
+      const [init, step] = await Promise.all([session(ONNX_MODELS.decoderInit), session(ONNX_MODELS.decoderStep)]);
+      _decoderUrls = { init: ONNX_MODELS.decoderInit, step: ONNX_MODELS.decoderStep };
+      return { init, step };
+    } catch (e) {
+      console.warn('[ONNX] cached decoder unavailable, using the plain one:', e);
+    }
+  }
+  _decoderUrls = { plain: ONNX_MODELS.decoder };
+  return { plain: await session(ONNX_MODELS.decoder) };
 }
 
 async function initOnnxOCR(progressCb) {
@@ -136,20 +160,18 @@ async function initOnnxOCR(progressCb) {
     if (progressCb) progressCb(`Loading ONNX models (${backend === 'wasm' ? '52' : '77'} MB first time)...`);
 
     // Load all models in parallel
-    const [detBuf, decBuf, vocabResp, enc] = await Promise.all([
+    const [detBuf, vocabResp, enc, dec] = await Promise.all([
       _loadCached(ONNX_MODELS.det).then(r => r.arrayBuffer()),
-      _loadCached(ONNX_MODELS.decoder).then(r => r.arrayBuffer()),
       _loadCached(ONNX_MODELS.vocab).then(r => r.text()),
       _createEncoder(backend, opts),
+      _createDecoder(backend, opts),
     ]);
 
     if (progressCb) progressCb('Creating ONNX sessions...');
 
     _encSession = enc;
-    [_detSession, _decSession] = await Promise.all([
-      ort.InferenceSession.create(detBuf, opts),
-      ort.InferenceSession.create(decBuf, opts),
-    ]);
+    _dec = dec;
+    _detSession = await ort.InferenceSession.create(detBuf, opts);
 
     _vocab = vocabResp.split('\n').filter(l => l.length > 0 || l === '');
     // Ensure empty lines map to space character (index for space in vocab)
@@ -554,7 +576,7 @@ async function _recognizeBox(canvas, box) {
   const imgTensor = _preprocessVietOCR(canvas, box.x0, box.y0, box.x1, box.y1);
   if (!imgTensor) return { text: '', confidence: 0 };
   if (_pool) return _pool.recognize(imgTensor);   // the tensor's buffer is handed to a worker
-  const result = await vietocrDecode(_encSession, _decSession, imgTensor, _vocab, yieldToMain);
+  const result = await vietocrDecode(_encSession, _dec, imgTensor, _vocab, yieldToMain);
   imgTensor.dispose();
   return result;
 }
