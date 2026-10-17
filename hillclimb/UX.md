@@ -5,7 +5,7 @@ after every change so the interface cannot quietly damage the result.
 
 Tools (all in `hillclimb/ux/`, run against a local gzip server `serve.py` so transfer sizes match GitHub Pages):
 `metrics.py` startup + accessibility + how live the progress is; `e2e.py` one job with an event timeline and screenshots;
-`functional.py` 14 behaviour checks; `axe_modes.py` axe-core on every layout, both languages and dark colours.
+`functional.py` 14 behaviour checks; `axe_modes.py` axe-core on every layout in both languages, plus the dark colours in one layout (guided, Vietnamese).
 
 ## Startup and liveness (3-page scanned job, headless Chrome)
 | metric | baseline (old page) | now |
@@ -46,7 +46,7 @@ A tester reported a download of about two minutes, no retry, a start screen that
 - **Memory on phones.** Workers: 1 in low-memory mode, 2 on phones, 3 with a GPU, otherwise 6. The page thread loads its own sessions only when it needs them. If the previous visit ended in the middle of a job (a crash flag), the next visit turns on low-memory mode by itself. It is also a checkbox in the options menu.
 - **Start screen.** One large "Chọn tệp" button, drag anywhere on the page, paste an image with Ctrl+V, and a sample link. Layout, language and low-memory live in a small "Tùy chọn" menu.
 
-Checks on this build: functional suite 20 of 20, recovery suite 8 of 8, axe 0 violations in every layout, language and dark mode, startup 4 requests, 0.01 MB, FCP 22 ms, CLS 0. The 11-page contract is unchanged: CPU 99 s and GPU 57 s, 473 of 473 rows, numbers 0.968, description error 0.022.
+Checks on this build: functional suite 20 of 20, recovery suite 8 of 8, axe 0 violations in every layout and language, and in dark mode for the guided layout in Vietnamese, startup 4 requests, 0.01 MB, FCP 22 ms, CLS 0. The 11-page contract is unchanged: CPU 99 s and GPU 57 s, 473 of 473 rows, numbers 0.968, description error 0.022.
 
 The phone cause is a hypothesis (too many workers, partial downloads lost when the tab is killed, no persistence request). A real phone was not available, so none of it is confirmed on one.
 

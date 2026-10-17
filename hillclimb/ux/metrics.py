@@ -56,7 +56,7 @@ def bytes_before(s, cutoff):
         if r["start"] <= cutoff:
             size = r["size"]
             if not size:
-                h = subprocess.run(["curl", "--silent", "--location", "--head", "--compressed", r["name"]], capture_output=True, text=True, timeout=30).stdout
+                h = subprocess.run(["curl", "--silent", "--location", "--head", r["name"]], capture_output=True, text=True, timeout=30).stdout
                 m = [l for l in h.lower().splitlines() if l.startswith("content-length:")]
                 size = int(m[-1].split(":")[1]) if m else 0
                 r["size"] = size

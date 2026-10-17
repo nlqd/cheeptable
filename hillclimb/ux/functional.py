@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Functional checks of the page.  functional.py URL FIXTURE_DIR [--port 9333]   Prints PASS / FAIL lines."""
-import json, subprocess, sys, time
+import json, re, subprocess, sys, time
 
 a = sys.argv
 url, fx = a[1], a[2]
@@ -71,7 +71,8 @@ rodney("key", "Enter"); time.sleep(0.3)
 check("Enter opens an editor", js("document.activeElement.tagName === 'INPUT'") == "true")
 rodney("key", "Enter"); time.sleep(0.5)
 after = js("document.querySelector('.rcount').textContent")
-check("confirming a cell lowers the counter", before != after, before + " -> " + after)
+num = lambda t: int(re.search(r"\d+", t).group()) if re.search(r"\d+", t) else 0
+check("confirming a cell lowers the counter", num(after) < num(before), before + " -> " + after)
 
 # 4. the Excel file: sheet names, header, numbers as numbers
 js("(window.__x = null, 1)")
@@ -100,7 +101,7 @@ rodney("file", "#fileInput", fx + "/prose.pdf")
 ok = wait(RESULT_READY, 200)
 none = js("!!document.querySelector('.nonehelp')") == "true"
 dis = js("!!document.getElementById('dlXlsx') && document.getElementById('dlXlsx').disabled") == "true"
-print("INFO a prose page: finished=%s, shows 'no table' state=%s, download disabled=%s, rows shown=%s" % (ok, none, dis, js("document.querySelectorAll('table.grid tbody tr:not([hidden])').length")))
+check("a prose page ends in the no-table state with the download disabled", ok and none and dis, "finished=%s no-table=%s download-disabled=%s" % (ok, none, dis))
 
 
 # 8. paste and drop anywhere on the page start a job

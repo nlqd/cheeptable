@@ -10,3 +10,5 @@ calib.npz
 __pycache__/
 *.log
 queue*.sh
+hosted_teacher/
+corpus_rows*/

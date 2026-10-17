@@ -246,7 +246,6 @@ function textLayerLines(items, pageNum) {
 
 // ── OCR Table Extraction ──
 async function ocrTableExtract(ocrLines, ocrWords, borderCells = []) {
-  console.log(`[ocrTableExtract] ENTRY: ${ocrWords.length} words, ${ocrLines.length} lines, ${borderCells.length} borderCells`);
   const extractStart = performance.now();
 
   // Filter margin content (headers/footers in top/bottom 5%)
@@ -255,12 +254,14 @@ async function ocrTableExtract(ocrLines, ocrWords, borderCells = []) {
     pageHeights[w.page] = Math.max(pageHeights[w.page] || 0, w.y1);
   });
 
-  console.log(`[ocrTableExtract] Page heights calculated: ${Object.keys(pageHeights).length} pages`);
 
   // A page with a drawn grid (at least 20 cells) is read cell by cell; every other page, scanned or not, from the positions of its
   // text. One file can hold both kinds, and a stray small box on a page of text must not decide for the whole file.
   const gridPages = new Set();
-  for (const p of new Set(borderCells.map(c => c.page))) if (borderCells.filter(c => c.page === p).length >= 20) gridPages.add(p);
+  for (const p of new Set(borderCells.map(c => c.page))) {
+    const n = borderCells.filter(c => c.page === p).length;
+    if (n >= 20) gridPages.add(p); else log(`  Page ${p}: only ${n} cells in a grid, read as text instead`, 'warn');
+  }
   const parts = [];
   if (gridPages.size) {
     log(`Using BORDER-BASED extraction (${gridPages.size} page(s) with a grid)`, 'ok');
@@ -268,7 +269,6 @@ async function ocrTableExtract(ocrLines, ocrWords, borderCells = []) {
   }
   const restWords = ocrWords.filter(w => !gridPages.has(w.page));
   if (restWords.length) parts.push(await textBasedExtract(ocrLines.filter(l => !gridPages.has(l.page)), restWords, pageHeights));
-  console.log(`[ocrTableExtract] ${parts.flat().length} rows in ${(performance.now() - extractStart).toFixed(0)}ms`);
   return parts.length > 1 ? parts.flat().map((r, i) => [r, i]).sort((x, y) => (x[0].page || 0) - (y[0].page || 0) || x[1] - y[1]).map(x => x[0]) : (parts[0] || []);
 }
 
@@ -472,7 +472,6 @@ function wordGridExtract(pageWords, pageCells) {
     }
   }
 
-  console.log(`[wordGridExtract] ${pageWords.length} words → ${numRows}r × ${numCols}c (assigned=${assigned} skipped=${skipped}) colLefts=[${colLefts.map(x=>x.toFixed(1)).join(',')}] maxRight=${maxRight.toFixed(1)}`);
   return { grid, numRows, numCols, colLefts, rowTops, maxRight, maxBottom };
 }
 
@@ -506,7 +505,6 @@ function gridCellsToWordGrid(pageWords, pageCells) {
       cell.confidence = cell.words.reduce((s, w) => s + w.confidence, 0) / cell.words.length;
     }
   }
-  console.log(`[gridCellsToWordGrid] ${pageWords.length} words -> ${numRows}r x ${numCols}c`);
   return { grid, numRows, numCols, colLefts, rowTops, maxRight, maxBottom };
 }
 
@@ -519,7 +517,6 @@ function wordsBox(words) {
 }
 
 async function borderBasedExtract(ocrWords, borderCells) {
-  console.log(`[borderBasedExtract] Starting with ${ocrWords.length} words and ${borderCells.length} cells`);
 
   // Group cells and words by page for efficient per-page processing
   const cellsByPage = {};
@@ -537,7 +534,6 @@ async function borderBasedExtract(ocrWords, borderCells) {
     wordsByPage[page].push(word);
   });
 
-  console.log(`[borderBasedExtract] Processing ${Object.keys(cellsByPage).length} pages separately...`);
 
   // Process each page independently (mapping + grid reconstruction)
   const tableRows = [];
@@ -586,13 +582,11 @@ async function borderBasedExtract(ocrWords, borderCells) {
       if (hasContent) rowsWithContent++;
 
       if (tableRows.length < 3) {
-        console.log(`[borderBasedExtract] Page ${page} row ${r}: [${cells.map(c => `"${c.value}"`).join(', ')}]`);
       }
 
       tableRows.push({ type: 'data', cells, page: parseInt(page) });
     }
 
-    console.log(`[borderBasedExtract] Page ${page}: ${rowsWithContent}/${numRows} rows with content`);
   }
 
   log(`  Total: ${tableRows.length} rows × ${maxCols} columns across ${pages.length} pages`);
