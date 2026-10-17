@@ -708,6 +708,31 @@ function _postProcess(vText) {
   return result;
 }
 
+// Text lines from the recognised boxes: boxes whose vertical centres are within half a line of each other share a line.
+// The spatial extractor works line by line, so without these a page with no ruled grid produced no rows at all.
+function _groupIntoLines(words, pageNum) {
+  const sorted = [...words].sort((a, b) => (a.y + a.y1) - (b.y + b.y1));
+  const lines = [];
+  for (const w of sorted) {
+    const mid = (w.y + w.y1) / 2;
+    const last = lines[lines.length - 1];
+    if (last && Math.abs(mid - last.mid) <= 0.5 * Math.max(w.height, last.height)) {
+      last.words.push(w);
+      last.mid = (last.mid * (last.words.length - 1) + mid) / last.words.length;
+      last.height = Math.max(last.height, w.height);
+    } else lines.push({ words: [w], mid, height: w.height });
+  }
+  return lines.map(l => {
+    const ws = l.words.sort((a, b) => a.x - b.x);
+    return {
+      text: ws.map(w => w.text).join(' '), words: ws, page: pageNum,
+      x: Math.min(...ws.map(w => w.x)), x1: Math.max(...ws.map(w => w.x1)),
+      y: Math.min(...ws.map(w => w.y)), y1: Math.max(...ws.map(w => w.y1)),
+      confidence: ws.reduce((s, w) => s + w.confidence, 0) / ws.length,
+    };
+  });
+}
+
 // ── Main Pipeline ──
 
 async function ocrPageWithOnnx(canvas, pageNum) {
@@ -756,6 +781,6 @@ async function ocrPageWithOnnx(canvas, pageNum) {
 
   perfEnd(`ONNX OCR page ${pageNum}`);
   console.log(`[ONNX] Page ${pageNum}: ${words.length} words recognized`);
-  return { words, lines: [] };
+  return { words, lines: _groupIntoLines(words, pageNum) };
 }
 

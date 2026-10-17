@@ -46,6 +46,24 @@ async function imageAsPdf(file) {
   return { numPages: 1, getPage: async () => page };
 }
 
+// A scanned page often carries an OCR text layer. Its text is unreliable and its ruling lines are pixels, not drawing commands, so
+// such a page has to be read from the picture. It is recognised by one image that covers nearly the whole page.
+function coversPage(opList, pageW, pageH) {
+  const OPS = pdfjsLib.OPS, painters = new Set([OPS.paintImageXObject, OPS.paintJpegXObject, OPS.paintInlineImageXObject, OPS.paintImageXObjectRepeat].filter(x => x !== undefined));
+  let m = [1, 0, 0, 1, 0, 0];
+  const stack = [];
+  for (let i = 0; i < opList.fnArray.length; i++) {
+    const fn = opList.fnArray[i];
+    if (fn === OPS.save) stack.push(m);
+    else if (fn === OPS.restore) m = stack.pop() || [1, 0, 0, 1, 0, 0];
+    else if (fn === OPS.transform) {
+      const [a, b, c, d, e, f] = opList.argsArray[i];
+      m = [m[0] * a + m[2] * b, m[1] * a + m[3] * b, m[0] * c + m[2] * d, m[1] * c + m[3] * d, m[0] * e + m[2] * f + m[4], m[1] * e + m[3] * f + m[5]];
+    } else if (painters.has(fn) && Math.hypot(m[0], m[1]) >= 0.8 * pageW && Math.hypot(m[2], m[3]) >= 0.8 * pageH) return true;
+  }
+  return false;
+}
+
 const isImageFile = (f) => /^image\//.test(f.type) || /\.(jpe?g|png|webp)$/i.test(f.name);
 const cancelled = () => CT.state.cancelled === true;
 
@@ -72,7 +90,7 @@ CT.runJob = async function (file) {
   CT.emit('pdf:loaded', { pages: numPages });
   log('PDF loaded: ' + numPages + ' pages', 'ok');
 
-  const allTextItems = [], allLines = [];
+  const allTextItems = [], allLines = [], textPages = [];
   const allOcrWords = [], allOcrLines = [], allBorderCells = [];
   let poolReady = null;
   let ocrPageCount = 0;
@@ -90,10 +108,13 @@ CT.runJob = async function (file) {
       height: Math.abs(it.transform[3]) || Math.abs(it.transform[0]) || 10, page: p,
     }));
 
-    if (pageText.length > 0) {
-      const pageLines = extractLines(await page.getOperatorList(), pageH, p);
+    const opList = pageText.length > 0 ? await page.getOperatorList() : null;
+    const scanned = opList && coversPage(opList, page.getViewport({ scale: 1.0 }).width, pageH);
+    if (pageText.length > 0 && !scanned) {
+      const pageLines = extractLines(opList, pageH, p);
       log('  Page ' + p + ': ' + pageText.length + ' text spans, ' + pageLines.length + ' lines (native)');
       allTextItems.push(...pageText);
+      textPages.push(p);
       allLines.push(...pageLines);
       CT.emit('page:done', { page: p, kind: 'text', words: pageText.length });
     } else {
@@ -172,21 +193,41 @@ CT.runJob = async function (file) {
   // Pass 2: table extraction
   CT.emit('build:start', {});
   await CT.frame();
-  let rows;
+  // Pages with a text layer and pages read from the picture can sit in the same file (a statement with scanned signature
+  // pages): each kind goes through its own extractor and the rows are put back in page order.
+  const parts = [];
+  const tableLike = (rs) => rs.length >= 3 && rs.filter(r => (r.cells || []).filter(c => String((c && typeof c === 'object') ? c.value : c).trim()).length >= 2).length / rs.length >= 0.2;
+  if (allTextItems.length > 0) {
+    const ruled = allLines.length > 20 ? await latticeExtract(allTextItems, allLines, numPages) : [];
+    for (const p of textPages) {
+      const byGutters = gutterExtract(textLayerLines(allTextItems.filter(it => it.page === p), p));
+      const byRules = ruled.filter(r => r.page === p);
+      if (tableLike(byGutters)) { log('  Page ' + p + ': columns from the text layout', 'ok'); parts.push(byGutters); }
+      else if (tableLike(byRules)) { log('  Page ' + p + ': columns from the ruling lines', 'ok'); parts.push(byRules); }
+    }
+  }
   if (allOcrWords.length > 0) {
     log('OCR total: ' + allOcrWords.length + ' words across ' + ocrPageCount + ' pages', 'ok');
-    rows = await ocrTableExtract(allOcrLines, allOcrWords, allBorderCells);
-    const seq = repairNumbering(rows).fixed;
+    const read = await ocrTableExtract(allOcrLines, allOcrWords, allBorderCells);
+    const seq = repairNumbering(read).fixed;
     if (seq > 0) log('Fixed ' + seq + ' misread row numbers (they count up by one)', 'ok');
-    const { fixed } = repairArithmetic(rows);
+    const { fixed } = repairArithmetic(read);
     if (fixed > 0) log('Fixed misread numbers in ' + fixed + ' rows (qty x price = total)', 'ok');
     CT.emit('build:fixes', { numbering: seq, arithmetic: fixed });
-  } else if (allLines.length > 20) {
-    log('Using LATTICE mode (lines detected)', 'ok');
-    rows = await latticeExtract(allTextItems, allLines, numPages);
-  } else {
-    log('Using alternative table detection method...', 'ok');
-    rows = await textClusterExtract(allTextItems);
+    parts.push(read);
+  }
+  let rows = parts.length > 1 ? parts.flat().map((r, i) => [r, i]).sort((x, y) => (x[0].page || 0) - (y[0].page || 0) || x[1] - y[1]).map(x => x[0]) : (parts[0] || []);
+
+  // Text that is not laid out in columns (a letter, a contents page, a gazette page) comes out one cell per line: a page where
+  // fewer than three rows, or fewer than one in five, has two or more cells is not a table and is left out. If no page is a table, say so.
+  const filled = (r) => (r.cells || []).filter(c => String((c && typeof c === 'object') ? c.value : c).trim()).length;
+  const byPage = new Map();
+  rows.forEach(r => byPage.set(r.page, [...(byPage.get(r.page) || []), r]));
+  const keepPage = new Map([...byPage].map(([pg, rs]) => { const multi = rs.filter(r => filled(r) >= 2).length; return [pg, multi >= 3 && multi / rs.length >= 0.2]; }));
+  if (rows.length) {
+    const kept = rows.filter(r => keepPage.get(r.page));
+    if (kept.length < rows.length) log(`Left out ${rows.length - kept.length} rows on pages that are not tables`, 'warn');
+    rows = kept;
   }
 
   extractedRows = rows;

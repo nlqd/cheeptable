@@ -84,6 +84,7 @@ const looksLikeBoq = (rows) => {
 // Returns { map: Map("r:c" -> {level, reason, conf}), check: number of cells to check, maybe: number of weaker suspects }.
 function reviewFlags(rows, holds) {
   const map = new Map();
+  const boq = looksLikeBoq(rows);         // quantity x price = total only means something in a bill of quantities
   const add = (r, c, level, reason, conf) => { const k = r + ':' + c; const old = map.get(k); if (!old || (old.level === 'maybe' && level === 'check')) map.set(k, { level, reason, conf }); };
   rows.forEach((row, r) => {
     if (row.type !== 'data') return;
@@ -99,7 +100,7 @@ function reviewFlags(rows, holds) {
         else if (conf < REVIEW.textMaybe) add(r, c, 'maybe', 'maybeText', conf);
       }
     });
-    if (cells.length >= 6 && holds && !cells.slice(3, 6).some(c => c && c.reviewed)) {
+    if (boq && cells.length >= 6 && holds && !cells.slice(3, 6).some(c => c && c.reviewed)) {
       const [q, p, t] = cells.slice(3, 6).map(rcVal);
       if (/\d/.test(q) && /\d/.test(p) && /\d/.test(t) && !holds(q, p, t)) [3, 4, 5].forEach(c => add(r, c, 'check', 'identity', rcConf(cells[c])));
     }
