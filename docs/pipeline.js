@@ -59,7 +59,7 @@ async function imageAsPdf(file) {
     getTextContent: async () => ({ items: [] }),
     getOperatorList: async () => ({ fnArray: [], argsArray: [] }),
     render: ({ canvasContext, viewport }) => ({ promise: Promise.resolve(canvasContext.drawImage(bitmap, 0, 0, viewport.width, viewport.height)) }),
-    cleanup() {},
+    cleanup() { bitmap.close(); },
   };
   return { numPages: 1, getPage: async () => page };
 }
@@ -77,6 +77,7 @@ function thumbOf(canvas, width = 168) {
 
 // ── The job ──
 CT.runJob = async function (file) {
+  Object.values((CT.state && CT.state.pages) || {}).forEach(pg => URL.revokeObjectURL(pg.url));
   CT.state = { cancelled: false, done: false, pages: {}, startedAt: performance.now() };
   extractedRows = [];
   const cvReady = CT.opencv().catch(e => log('OpenCV failed: ' + e.message, 'err'));
@@ -93,7 +94,6 @@ CT.runJob = async function (file) {
 
   const allTextItems = [], allLines = [];
   const allOcrWords = [], allOcrLines = [], allBorderCells = [];
-  const pageCanvases = {};
   let poolReady = null;
   let ocrPageCount = 0;
 
@@ -130,7 +130,6 @@ CT.runJob = async function (file) {
       CT.emit('page:status', { page: p, status: 'render' });
       await CT.frame();
       const canvas = await renderPageToCanvas(page, OCR_SCALE);
-      pageCanvases[p] = canvas;
       CT.emit('page:render', { page: p, thumb: thumbOf(canvas), width: canvas.width, height: canvas.height });
       canvas.toBlob(b => { if (b) { CT.state.pages[p] = { url: URL.createObjectURL(b), width: canvas.width, height: canvas.height }; CT.emit('page:image', { page: p }); } }, 'image/jpeg', 0.75);
 
@@ -197,7 +196,7 @@ CT.runJob = async function (file) {
   let rows;
   if (allOcrWords.length > 0) {
     log('OCR total: ' + allOcrWords.length + ' words across ' + ocrPageCount + ' pages', 'ok');
-    rows = await ocrTableExtract(allOcrLines, allOcrWords, allBorderCells, pageCanvases);
+    rows = await ocrTableExtract(allOcrLines, allOcrWords, allBorderCells);
     const seq = repairNumbering(rows).fixed;
     if (seq > 0) log('Fixed ' + seq + ' misread row numbers (they count up by one)', 'ok');
     const { fixed } = repairArithmetic(rows);
