@@ -96,7 +96,22 @@ Both models packaged the same way (the original with fp16 weights, same int8 con
 - 40 of 52 documents give identical output: they come from a text layer and no model is involved.
 - The 12 that use the recogniser: the two scanned financial statements differ by 0.017 and 0.006 of characters, the legal scans by 0.007 to 0.118, the 1948 French-Vietnamese gazette scans by 0.14 to 0.24, a receipt form by 0.17. Differing says nothing about which is right, and old print is hard for both.
 - Where the answer is known (`ab_pages.py`): 11 table pages of born-digital documents turned into pictures at 200 dpi, the text-layer table as the key. Student: mean row recall 0.416, character error 0.406, same cell count in 0.674 of matched rows. Original: 0.414, 0.401, 0.674. Page by page they are within 0.005 of each other except one drug list (both fail: 5 rows out of 52). So the smaller model is as good as the original on these pages.
-- The same table shows how weak the picture path is on dense tables, for either model: recall under 0.1 on a price list, a score list and a land-price table, 0.38 on a timetable, 0 on one paper. Row splitting and merging, not the text, dominates the error there. This is the next thing to work on.
+- That table's low row recall is mostly the key (one row per text line against one per table row); see the next section for a fairer measure.
+
+## Reading dense tables from pictures: a measured climb
+
+The earlier "row recall under 0.1" was a flaw in the key, not in the extraction: the text layer gives one row per text line, while a grid reader correctly gives one row per table row (the drug list's 5 rows are right). A better yardstick (`capture.py`, `lab.mjs`, `lab_score.py`): 36 table pages of born-digital documents drawn as 200 dpi pictures, read once by the page code and kept, so the extractor can be changed and rescored in seconds. Score = word F1 between the output and the text layer, where recall counts only the text inside the area the page reading covered (titles and notes outside the table are not held against it). Split by document: 26 dev pages, 10 test pages; two papers whose text layer is a legacy font are not scored (22 dev pages scored).
+
+| step | dev word F1 | test word F1 |
+|---|---|---|
+| start | 0.848 | 0.809 |
+| keep spaces in text columns of the unruled-page extractor (it was deleting them) | 0.879 | 0.809 |
+| tall text bands split at the least-ink row (justified lines touching each other were read as one garbled line), one typical line height per column; sideways text left alone | 0.924 | 0.857 |
+| a grid of fewer than 20 cells is not used (a page with a small box returned nothing) | included above | included above |
+
+Tried and dropped: cutting very wide lines into pieces before reading raised nothing on the pages and tripled the contract's description error (0.021 to 0.067), so it was removed; reading pages at 300 dpi instead of 200 helped some pages by 0.05 to 0.10, hurt others by as much, and costs 2.25 times the pixels (mean +0.007 on 8 pages). The contract after the final change: numbers 0.977, description error 0.021, as before.
+
+Caveats: the key is the text layer of the same documents, the structure score (pair F1, from the same gutter method as the key) did not move and is not trustworthy, and the 36 pages come from the same 35 documents the other checks use.
 
 ## What these numbers do not show
 

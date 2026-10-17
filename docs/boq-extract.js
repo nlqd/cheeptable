@@ -837,7 +837,7 @@ async function spatialExtract(filteredLines, filteredWords) {
 
     // Clean OCR artifacts in numeric columns
     for (var c = 3; c < numCols; c++) {
-      if (cells[c].value) {
+      if (cells[c].value && /^[\dOol.,()\s-]+$/.test(cells[c].value)) {          // a number misread as letters; text keeps its spaces
         cells[c].value = cells[c].value.replace(/O/g, '0').replace(/l/g, '1').replace(/\s/g, '');
       }
     }
