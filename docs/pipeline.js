@@ -17,26 +17,8 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs
 const perfStart = () => {};
 const perfEnd = () => {};
 
-// Stubs for globals the older extraction files still reference
-const OCR_SERVER_URL = '';
-let ocrServerAvailable = false;
-let vpsApiAvailable = false;
-let diacriticCache = {};
-let debugData = { ocrWords: [], ocrLines: [], pdfMetadata: null };
-function authHeaders() { return {}; }
-function clearAuthToken() {}
-function showVizPanel() {}
-
-// State the extraction and review files read
-let extractedRows = [];
-let currentOCRPage = 0;
-let totalPDFPages = 0;
+let extractedRows = [];            // the rows the last job produced (results.js replaces them with the reviewed ones)
 let opencvReady = false;
-let syllableCorrector = null;
-let pdfDoc = null;
-let rowFlags = {};
-let flagList = [];
-let currFlagIdx = -1;
 let onnxBackendAvailable = null;
 
 function log(msg, cls = '') {
@@ -86,9 +68,7 @@ CT.runJob = async function (file) {
   const pdf = isImageFile(file)
     ? await imageAsPdf(file)
     : await pdfjsLib.getDocument({ data: await file.arrayBuffer() }).promise;
-  pdfDoc = pdf;
   const numPages = pdf.numPages;
-  totalPDFPages = numPages;
   CT.emit('pdf:loaded', { pages: numPages });
   log('PDF loaded: ' + numPages + ' pages', 'ok');
 
@@ -143,7 +123,6 @@ CT.runJob = async function (file) {
       }
       CT.emit('page:grid', { page: p, mode: grid ? 'grid' : 'detector', cols: grid ? grid.xs.length - 1 : 0, rows: grid ? grid.ys.length - 1 : 0 });
 
-      currentOCRPage = p;
       try {
         CT.emit('page:status', { page: p, status: 'read' });
         let ocrResult;
