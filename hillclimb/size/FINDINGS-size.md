@@ -75,6 +75,20 @@ Collected by an agent: price lists, forms, timetables, financial statements, leg
 - Line reading (`bench2.py`, 4,434 lines from the 35 born-digital documents, clean and degraded, answer = text layer; some text layers are garbled legacy fonts, so absolute errors are high): teacher 0.1137, student x2 0.1161, difference +0.0024, 95% interval over documents [-0.0046, +0.0140]. Not distinguishable. Per category the student is better on price lists (-0.007) and legal text (-0.002) and worse on forms (+0.038, driven by one customs form whose text is rows of placeholder "XXXX" where the count of repeated letters is misread).
 - The whole app on the first 3 pages of each document (`corpus_e2e.py`): no errors or crashes. All 35 born-digital documents give rows. Of the 17 scans, 10 give rows and 7 report "no table": five 1948 gazette pages (prose, expected) and two scanned financial statements with ruled tables (not expected, not yet investigated). "Gives rows" is coverage only, there is no answer key for the structure.
 
+## Bugs found with the 52-document corpus (and fixed)
+
+Two scanned financial statements first looked like "no table found". Reading why turned up five problems in the page logic, none of them in the recogniser:
+
+1. A scanned page that carries an OCR text layer was treated as a born-digital page: its (unreliable) text was used as it stood and its ruling lines, being pixels, were never seen. Such a page is now recognised by one image covering nearly the whole page and is read from the picture.
+2. A file with both kinds of page (a statement with scanned signature pages) kept only the scanned pages' rows. Each kind now goes through its own extractor and the rows are merged in page order.
+3. The detector path (pages with no ruled grid) returned no text lines, so the line-based extractors had nothing to work on and produced zero rows. Lines are now built from the detected boxes.
+4. The extractor was chosen once per file: 27 cells found in two small boxes on two pages made the whole 6-page file "grid", and the other four pages vanished (6 rows instead of 135). The choice is now per page.
+5. Born-digital pages never became tables at all: every line came out as one cell (87 rows with one cell each for a price list). Columns are now found from the gutters between the boxes of a text layer, with the ruling lines as the second choice. A page where fewer than three rows, or fewer than one in five, have two or more cells is left out, and if no page is a table the app says so (a gazette scan or a letter now ends in "no table" instead of a column of lines).
+
+Also: the quantity x price = total check was applied to any table with six or more columns (117 false flags on a score list); it now runs only on a bill of quantities. A cleanup of mine had deleted three cell helpers still used by the unruled-table path; `hillclimb/ux/undefined_names.sh` now catches that kind of slip.
+
+Not measured: the structure of these tables has no answer key. On the first six pages of the 52 documents, 40 give a table and none fail; the 12 without one are short documents whose pages are not tables or have layouts the gutter method does not split (checked by hand on two). The contract's rows are byte-identical before and after.
+
 ## Not done, not known
 
 - No real phone, Safari or Firefox; externalData is only exercised in Chrome. Memory per worker was not measured (estimated 70 to 80 MB against about 250 MB before).

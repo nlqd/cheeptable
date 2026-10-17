@@ -11,6 +11,13 @@ const cell = (value, confidence = 93) => ({ value, confidence });
 const row = (vals, type = 'data', conf) => ({ type, cells: vals.map((v, i) => cell(v, Array.isArray(conf) ? conf[i] : (conf ?? 93))) });
 
 const tests = {
+  'quantity x price = total is only checked in a bill of quantities'() {
+    const holds = () => false;
+    const score = ['1', '2', '3', '4', '5'].map(n => row([n, 'Hà Nội', '91', '12,5', '3', '7', '2', '9', '1']));
+    assert.equal(reviewFlags(score, holds).check, 0);
+    const boq = ['1', '2', '3', '4'].map(n => row([n, 'Ống', 'm', '2', '3', '9']));
+    assert.equal(reviewFlags(boq, holds).check > 0, true);
+  },
   'a BOQ header row is recognised'() {
     assert.equal(isHeaderRow(row(['STT', 'Tên vật tư', 'Đvt', 'Số lượng', 'Đơn giá', 'Thành tiền']).cells), true);
   },
@@ -67,8 +74,9 @@ const tests = {
     assert.equal(r.map.get('0:3').reason, 'lowNum');
   },
   'a row that breaks quantity x price = total flags its three numbers'() {
-    const r = reviewFlags([row(['1', 'chữ', 'm', '3', '85.850', '999.999'])], arithHolds);
-    assert.deepEqual([3, 4, 5].map(c => r.map.get('0:' + c).reason), ['identity', 'identity', 'identity']);
+    const good = (n) => row([n, 'chữ', 'm', '3', '85.850', '257.550']);
+    const r = reviewFlags([good('1'), good('2'), row(['3', 'chữ', 'm', '3', '85.850', '999.999'])], arithHolds);
+    assert.deepEqual([3, 4, 5].map(c => r.map.get('2:' + c).reason), ['identity', 'identity', 'identity']);
     assert.equal(r.check, 3);
   },
   'a consistent row is not flagged'() {

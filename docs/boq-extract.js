@@ -132,56 +132,116 @@ async function latticeExtract(textItems, lines, numPages) {
   return allRows;
 }
 
-// ── Fallback: Text Clustering ──
-async function textClusterExtract(textItems) {
-  log('Text clustering: grouping by Y coordinate...', 'warn');
+// ── Cells as the results table expects them. The recogniser's text is used as read: no spell correction. ──
+function classifyCellType(text, colIndex) {
+  if (colIndex === 0) return 'stt';
+  if (colIndex === 1) return 'text';
+  if (colIndex === 2) return 'unit';
+  return 'number';
+}
+
+function createCellMetadata(value, confidence, colIndex) {
+  const text = value || '';
+  return { value: text, original: text, confidence: text ? confidence : 0, source: text ? 'ocr' : 'empty', correctedBy: null, type: classifyCellType(text, colIndex), edited: false };
+}
+
+function buildCellWithMetadata(words, colIndex) {
+  if (!words || !words.length) return createCellMetadata('', 0, colIndex);
+  const confidence = Math.round(words.reduce((sum, w) => sum + w.confidence, 0) / words.length);
+  return { ...createCellMetadata(words.map(w => w.text).join(' '), confidence, colIndex), ocrWords: words.length, avgOcrConfidence: confidence };
+}
+
+// ── Ledger extraction: tables with no ruling, such as a scanned financial statement ──
+// Each detected box is a cell. Numbers line up on their right edge, so the right edges of the numeric boxes give the columns;
+// a short number at the far left is a code column; everything else on a line is the description.
+const LEDGER_NUMBER = /^[\d.,()\-\u2013%/\s]+$/;
+function ledgerExtract(lines) {
+  const isNum = (w) => /\d/.test(w.text) && LEDGER_NUMBER.test(w.text) && !/^\(?\d{1,2}[.)]$/.test(w.text.trim());   // "1." is an outline number, not a quantity
+  const edges = lines.flatMap(l => l.words.filter(isNum).map(w => w.x1)).sort((a, b) => a - b);
+  const clusters = [];
+  for (const x of edges) {
+    const last = clusters[clusters.length - 1];
+    if (last && x - last.sum / last.n <= 8) { last.sum += x; last.n++; } else clusters.push({ sum: x, n: 1 });
+  }
+  const minSupport = Math.max(3, Math.round(0.1 * lines.length));
+  const cols = clusters.filter(c => c.n >= minSupport).map(c => c.sum / c.n);
+  if (!cols.length) return [];
+  const textLeft = lines.flatMap(l => l.words.filter(w => !isNum(w)).map(w => w.x)).sort((a, b) => a - b);
+  const descStart = textLeft.length ? textLeft[Math.floor(textLeft.length * 0.1)] : cols[0];
+  const hasCode = cols[0] < descStart;                       // a number column that ends before the descriptions start
+  const desc = hasCode ? 1 : 0;                              // cells: [code], description, one per remaining number column
+  const width = desc + 1 + (hasCode ? cols.length - 1 : cols.length);
   const rows = [];
-
-  // Group by page, then by Y clusters
-  const byPage = {};
-  textItems.forEach(t => { (byPage[t.page] = byPage[t.page] || []).push(t); });
-
-  for (const [page, items] of Object.entries(byPage)) {
-    const yVals = cluster(items.map(t => t.y), 4);
-
-    for (let i = 0; i < yVals.length - 1; i++) {
-      const yTop = yVals[i], yBot = (i < yVals.length - 1) ? yVals[i + 1] : yTop + 20;
-      const rowItems = items.filter(t => t.y >= yTop - 2 && t.y < yBot - 2);
-      if (rowItems.length === 0) continue;
-
-      rowItems.sort((a, b) => a.x - b.x);
-      const text = rowItems.map(t => t.str).join(' ').trim();
-      if (!text) continue;
-
-      // Check if this line has pipe separators (table data)
-      if (text.includes('|')) {
-        const parts = text.split('|').map(p => p.trim()).filter(p => p);
-        if (parts.length >= 2) {
-          // FIX: Split first cell if it starts with numbered pattern (e.g., "1. Xi mang" → ["1.", "Xi mang"])
-          // This handles PDFs where STT column is not pipe-separated from content
-          const cells = [...parts];
-          if (cells[0] && /^(\d+\.|\d+\))\s+/.test(cells[0])) {
-            const match = cells[0].match(/^(\d+\.|\d+\))\s+(.+)$/);
-            if (match) {
-              cells.splice(0, 1, match[1], match[2]); // Replace first cell with [STT, content]
-            }
-          }
-
-          rows.push({ type: 'data', cells: cells, page: +page });
-          continue;
-        }
+  for (const line of lines) {
+    const cells = Array.from({ length: width }, () => []);
+    for (const w of line.words) {
+      let at = desc;
+      if (isNum(w)) {
+        const n = cols.reduce((best, c, i) => (Math.abs(c - w.x1) < Math.abs(cols[best] - w.x1) ? i : best), 0);
+        if (Math.abs(cols[n] - w.x1) <= 14) at = hasCode ? (n === 0 ? 0 : desc + n) : desc + 1 + n;
       }
-
-      // Otherwise single column - use original text
-      try {
-        rows.push({ type: 'data', cells: [text], page: +page });
-      } catch (error) {
-        console.error('Text parsing failed:', text, error);
-        rows.push({ type: 'data', cells: [text], page: +page }); // Fallback to original
-      }
+      cells[at].push(w);
     }
+    const built = cells.map((ws, i) => buildCellWithMetadata(ws, i));
+    if (built.every(c => c.value === '')) continue;
+    rows.push({ type: 'data', cells: built, page: line.page });
   }
   return rows;
+}
+
+// ── Columns from the gutters between them (any table with aligned columns, ruled or not, scanned or from a text layer) ──
+// Lines are made of boxes (a run of words with no wide gap). The share of lines covering each x tells where the gutters are:
+// narrow vertical stripes that almost no line crosses. A few lines that span the page (a title) are tolerated.
+function gutterExtract(lines) {
+  if (lines.length < 4) return [];
+  const x0 = Math.floor(Math.min(...lines.map(l => l.x))), x1 = Math.ceil(Math.max(...lines.map(l => l.x1)));
+  const cover = new Uint16Array(x1 - x0 + 1);
+  for (const l of lines) for (const w of l.words) for (let x = Math.floor(w.x) - x0; x <= Math.ceil(w.x1) - x0; x++) cover[x]++;
+  const limit = Math.max(1, Math.round(0.08 * lines.length)), minGap = 5;
+  const cuts = [];
+  for (let x = 0, start = -1; x <= cover.length; x++) {
+    const open = x < cover.length && cover[x] <= limit;
+    if (open && start < 0) start = x;
+    if (!open && start >= 0) { if (x - start >= minGap && start > 0 && x < cover.length) cuts.push((start + x) / 2 + x0); start = -1; }
+  }
+  if (!cuts.length) return [];
+  const colOf = (w) => { const c = (w.x + w.x1) / 2; let i = 0; while (i < cuts.length && c > cuts[i]) i++; return i; };
+  const rows = [];
+  for (const line of lines) {
+    const cells = Array.from({ length: cuts.length + 1 }, () => []);
+    for (const w of line.words) cells[colOf(w)].push(w);
+    const built = cells.map((ws, i) => buildCellWithMetadata(ws, i));
+    if (built.every(c => c.value === '')) continue;
+    rows.push({ type: 'data', cells: built, page: line.page });
+  }
+  return rows;
+}
+
+// Lines of boxes from a PDF text layer. Items closer than an eighth of the text height are one word (the layer often cuts words
+// into pieces), up to the text height they are separate words of one box, wider than that they start a new box.
+function textLayerLines(items, pageNum) {
+  const sorted = [...items].sort((a, b) => a.y - b.y || a.x - b.x);
+  const rows = [];
+  for (const it of sorted) {
+    const last = rows[rows.length - 1];
+    if (last && Math.abs(it.y - last.y) <= 0.5 * Math.max(it.height, last.height)) { last.items.push(it); last.height = Math.max(last.height, it.height); }
+    else rows.push({ y: it.y, height: it.height, items: [it] });
+  }
+  return rows.map(r => {
+    const its = r.items.sort((a, b) => a.x - b.x);
+    const boxes = [];
+    for (const it of its) {
+      const b = boxes[boxes.length - 1], h = Math.max(it.height, 1);
+      const gap = b ? it.x - b.x1 : Infinity;
+      if (b && gap < h) {
+        b.text += (/\s$/.test(b.raw) || /^\s/.test(it.str) || gap >= 0.12 * h ? ' ' : '') + it.str.trim();
+        b.raw = it.str; b.x1 = Math.max(b.x1, it.x + it.width); b.height = Math.max(b.height, it.height);
+      } else boxes.push({ raw: it.str, text: it.str.trim(), x: it.x, x1: it.x + it.width, y: it.y - it.height, y1: it.y, width: 0, height: it.height, confidence: 100, page: pageNum, src: 'text' });
+    }
+    const words = boxes.filter(b => b.text);
+    return { words, text: words.map(w => w.text).join(' '), page: pageNum, x: Math.min(...words.map(w => w.x)), x1: Math.max(...words.map(w => w.x1)),
+      y: Math.min(...words.map(w => w.y)), y1: Math.max(...words.map(w => w.y1)), confidence: 100 };
+  }).filter(l => l.words.length);
 }
 
 // ── OCR Table Extraction ──
@@ -197,20 +257,23 @@ async function ocrTableExtract(ocrLines, ocrWords, borderCells = []) {
 
   console.log(`[ocrTableExtract] Page heights calculated: ${Object.keys(pageHeights).length} pages`);
 
-  // If border cells detected, use border-based extraction
-  // Require at least 20 cells to consider it a valid table grid
-  if (borderCells.length >= 20) {
-    log(`Using BORDER-BASED extraction (${borderCells.length} cells detected)`, 'ok');
-    console.log(`[ocrTableExtract] Calling borderBasedExtract...`);
-    const result = await borderBasedExtract(ocrWords, borderCells);
-    console.log(`[ocrTableExtract] borderBasedExtract returned ${result.length} rows in ${(performance.now()-extractStart).toFixed(0)}ms`);
-    return result;
-  } else if (borderCells.length > 0) {
-    log(`Border detection found only ${borderCells.length} cells, falling back to text-based extraction`, 'warn');
+  // A page with a drawn grid (at least 20 cells) is read cell by cell; every other page, scanned or not, from the positions of its
+  // text. One file can hold both kinds, and a stray small box on a page of text must not decide for the whole file.
+  const gridPages = new Set();
+  for (const p of new Set(borderCells.map(c => c.page))) if (borderCells.filter(c => c.page === p).length >= 20) gridPages.add(p);
+  const parts = [];
+  if (gridPages.size) {
+    log(`Using BORDER-BASED extraction (${gridPages.size} page(s) with a grid)`, 'ok');
+    parts.push(await borderBasedExtract(ocrWords.filter(w => gridPages.has(w.page)), borderCells.filter(c => gridPages.has(c.page))));
   }
+  const restWords = ocrWords.filter(w => !gridPages.has(w.page));
+  if (restWords.length) parts.push(await textBasedExtract(ocrLines.filter(l => !gridPages.has(l.page)), restWords, pageHeights));
+  console.log(`[ocrTableExtract] ${parts.flat().length} rows in ${(performance.now() - extractStart).toFixed(0)}ms`);
+  return parts.length > 1 ? parts.flat().map((r, i) => [r, i]).sort((x, y) => (x[0].page || 0) - (y[0].page || 0) || x[1] - y[1]).map(x => x[0]) : (parts[0] || []);
+}
 
-  console.log(`[ocrTableExtract] Checking for pipe-based extraction...`);
-
+// Rows from the positions of OCR lines and words (no drawn grid).
+async function textBasedExtract(ocrLines, ocrWords, pageHeights) {
   const filteredLines = ocrLines.filter(l => {
     const ph = pageHeights[l.page] || 800;
     return l.y > ph * 0.05 && l.y1 < ph * 0.95;
@@ -218,12 +281,18 @@ async function ocrTableExtract(ocrLines, ocrWords, borderCells = []) {
 
   // Check if pipe characters are prevalent (table borders recognized as |)
   const pipeCount = filteredLines.filter(l => (l.text.match(/[|\[\]]/g) || []).length >= 2).length;
-  const pipeRatio = pipeCount / filteredLines.length;
+  const pipeRatio = filteredLines.length ? pipeCount / filteredLines.length : 0;
   log(`  Pipe-delimited lines: ${pipeCount}/${filteredLines.length} (${(pipeRatio * 100).toFixed(0)}%)`);
 
   if (pipeRatio > 0.25) {
     log('Using PIPE-BASED parsing (table borders detected in OCR)', 'ok');
     return await pipeBasedExtract(filteredLines);
+  }
+
+  const ledger = filteredLines.length >= 5 ? ledgerExtract(filteredLines) : [];
+  if (ledger.length >= 5) {
+    log('Using LEDGER parsing (numbers aligned on their right edge)', 'ok');
+    return ledger;
   }
 
   // Fallback: spatial word-position analysis
