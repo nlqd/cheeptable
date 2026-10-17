@@ -1,11 +1,9 @@
-# PDF Table OCR → Excel
+# CheepTable
 
-Extracts tables from scanned PDFs with Vietnamese text support. Runs entirely in the browser — no data uploaded.
+Free Vietnamese OCR that turns tables in PDFs and photos into Excel, entirely in the browser: no server, no account, no upload. Live at https://ocr.dzungngo.com (GitHub Pages, `docs/`).
 
-**Stack:** pdf.js · Tesseract.js · PaddleOCR + VietOCR (server) · SheetJS
+Run locally: `python3 hillclimb/ux/serve.py 8080`, then open http://localhost:8080/docs/index.html
 
-**Serve:** `python3 -m http.server 8080` → open `http://localhost:8080/new.html`
+Tests: `node test-grid.mjs`, and likewise `test-arith`, `test-sequence`, `test-results`, `test-wire`. Browser checks are in `hillclimb/ux/`.
 
-**OCR server:** `source venv_paddle311/bin/activate && python3 ocr_server.py`
-
-Auth token is set once in the browser and stored in localStorage.
+The recogniser is an 8.6 MB distilled VietOCR hosted on Hugging Face (`dzngo/vietocr-models`); how it was built and measured is in `hillclimb/size/FINDINGS-size.md`. Other measurements and research are in `hillclimb/`.
