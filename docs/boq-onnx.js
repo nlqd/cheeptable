@@ -4,7 +4,17 @@
 
 // ── Configuration ──
 // A developer can point the page at another copy of the models with localStorage['ct.models'] (a link must not be able to).
-const ONNX_MODEL_BASE = (() => { try { return localStorage.getItem('ct.models'); } catch (e) { return null; } })() || 'https://huggingface.co/dzngo/vietocr-models/resolve/main';
+const _DEV_MODEL_BASE = (() => { try { return localStorage.getItem('ct.models'); } catch (e) { return null; } })();
+const ONNX_MODEL_BASE = _DEV_MODEL_BASE || 'https://huggingface.co/dzngo/vietocr-models/resolve/main';
+// The exact files of vietocr/cheep-v1 (hillclimb/size/FINDINGS-size.md). A copy that does not match, truncated in a cache or
+// altered on the way, is thrown away and fetched again; a developer's own copy is not checked.
+const ONNX_SHA256 = {
+  'cheep-v1/model.bin': '3f81d2a2a15c4d618dcf27e3fa5340631384bdfa55c4532e77abbfdfeab5aeea',
+  'cheep-v1/enc.skel.onnx': '99377a7e07e4ab83f861767e26f3192abf5dea31bb00315dd0903a86fdea25f4',
+  'cheep-v1/encq.skel.onnx': 'debf65bec0dbc1001258e42ecca141472c7045f0ad825a7e9787a920a50db843',
+  'cheep-v1/init.skel.onnx': 'a70880e736736f541704f85f8a13c3c999376448d67f68daf3136da24b38593f',
+  'cheep-v1/step.skel.onnx': '59f6770d95f38e4135037952648d93744f083313c87bdda4f4684115fa40a126',
+};
 const ONNX_MODELS = {
   det:     `${ONNX_MODEL_BASE}/paddleocr/det_v3.onnx`,
   // The recogniser: one entropy-coded weight file and three graph files without weights (hillclimb/size/build_wire.py,
@@ -119,14 +129,30 @@ async function _fetchWithProgress(url) {
   }
 }
 
+// null: nothing to check (not a pinned file, or no crypto.subtle); otherwise whether the bytes are the pinned ones.
+async function _matchesPin(blob, url) {
+  const key = _DEV_MODEL_BASE ? null : Object.keys(ONNX_SHA256).find(k => url.endsWith('/' + k));
+  if (!key || !(window.crypto && crypto.subtle)) return null;
+  const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', await blob.arrayBuffer()));
+  return [...digest].map(b => b.toString(16).padStart(2, '0')).join('') === ONNX_SHA256[key];
+}
+
 async function _loadCached(url) {
   const hit = await CTStore.get(url);
-  if (hit) { window.CT?.emit('model:progress', { url, loaded: 1, total: 1, cached: true }); return hit; }
+  if (hit) {
+    const blob = await hit.clone().blob();
+    if ((await _matchesPin(blob, url)) !== false) { window.CT?.emit('model:progress', { url, loaded: 1, total: 1, cached: true }); return hit; }
+    await CTStore.remove(url);                            // a damaged copy: fetch it again
+  }
   const resp = await _fetchWithProgress(url);
   const type = resp.headers.get('content-type');
   const blob = await resp.blob();
+  if ((await _matchesPin(blob, url)) === false) {
+    await CTStore.clearParts(url);
+    throw new Error(`The downloaded file is not the expected one: ${url}`);
+  }
   const where = await CTStore.put(url, blob, type);
-  if (where) CTStore.clearParts(url);                   // kept nowhere? then the partial copy stays and the next visit resumes it
+  if (where) CTStore.clearParts(url);                   // the whole file is stored, so the partial copy is not needed; if nothing could store it, the copy stays and the next visit resumes it
   window.CT?.emit('model:stored', { url, where });
   return new Response(blob, { status: 200, headers: { 'Content-Type': type || 'application/octet-stream' } });
 }
@@ -236,10 +262,7 @@ async function initOnnxOCR(progressCb) {
 
     _encSession = gpu ? await _createGpuEncoder() : null;       // WebGPU needs its session on the page thread
     const vocabResp = await (await _loadCached(ONNX_MODELS.vocab)).text();
-
-    _vocab = vocabResp.split('\n').filter(l => l.length > 0 || l === '');
-    // Ensure empty lines map to space character (index for space in vocab)
-    _vocab = vocabResp.split('\n').map(l => l === '' ? '' : l);
+    _vocab = vocabResp.split('\n');       // an empty line is a token with no text
 
     onnxReady = true;
     console.log(`[ONNX] Ready. Encoder: ${_encoderOnGpu ? 'WebGPU' : 'WASM'}, vocab: ${_vocab.length} tokens`);
@@ -481,51 +504,55 @@ async function _detectTextBoxes(canvas) {
   const boxes = [];
   const n = Math.min(contours.size(), DB_MAX_CANDIDATES);
 
-  for (let i = 0; i < n; i++) {
-    const contour = contours.get(i);
-    const rect = cv.minAreaRect(contour);
-    const sside = Math.min(rect.size.width, rect.size.height);
-    if (sside < DB_MIN_SIZE) continue;
+  try {
+    for (let i = 0; i < n; i++) {
+      const contour = contours.get(i);       // a copy made for us: it has to be deleted
+      try {
+        const rect = cv.minAreaRect(contour);
+        const sside = Math.min(rect.size.width, rect.size.height);
+        if (sside < DB_MIN_SIZE) continue;
 
-    // Get 4 corner points
-    const pts4 = cv.RotatedRect.points(rect);
-    const ptsArr = pts4.map(p => [p.x, p.y]);
+        // Get 4 corner points
+        const pts4 = cv.RotatedRect.points(rect);
+        const ptsArr = pts4.map(p => [p.x, p.y]);
 
-    // Score
-    const score = _boxScoreFast(probMap, pW, pH, ptsArr);
-    if (score < DB_BOX_THRESH) continue;
+        // Score
+        const score = _boxScoreFast(probMap, pW, pH, ptsArr);
+        if (score < DB_BOX_THRESH) continue;
 
-    // Unclip
-    const area = cv.contourArea(contour);
-    const perimeter = cv.arcLength(contour, true);
-    if (perimeter <= 0) continue;
-    const distance = area * DB_UNCLIP_RATIO / perimeter;
-    const expanded = _clipperOffset(ptsArr, distance);
+        // Unclip
+        const area = cv.contourArea(contour);
+        const perimeter = cv.arcLength(contour, true);
+        if (perimeter <= 0) continue;
+        const distance = area * DB_UNCLIP_RATIO / perimeter;
+        const expanded = _clipperOffset(ptsArr, distance);
 
-    // Get final bounding box — use axis-aligned for simplicity
-    let xmin = Infinity, xmax = -Infinity, ymin = Infinity, ymax = -Infinity;
-    for (const [x, y] of expanded) {
-      xmin = Math.min(xmin, x); xmax = Math.max(xmax, x);
-      ymin = Math.min(ymin, y); ymax = Math.max(ymax, y);
+        // Get final bounding box — use axis-aligned for simplicity
+        let xmin = Infinity, xmax = -Infinity, ymin = Infinity, ymax = -Infinity;
+        for (const [x, y] of expanded) {
+          xmin = Math.min(xmin, x); xmax = Math.max(xmax, x);
+          ymin = Math.min(ymin, y); ymax = Math.max(ymax, y);
+        }
+
+        const fw = xmax - xmin, fh = ymax - ymin;
+        if (Math.min(fw, fh) < DB_MIN_SIZE + 2) continue;
+
+        // Scale back to original image coordinates
+        boxes.push({
+          x0: Math.max(0, Math.round(xmin * pre.ratioW)),
+          y0: Math.max(0, Math.round(ymin * pre.ratioH)),
+          x1: Math.min(pre.srcW, Math.round(xmax * pre.ratioW)),
+          y1: Math.min(pre.srcH, Math.round(ymax * pre.ratioH)),
+          score,
+        });
+      } finally { contour.delete(); }
     }
-
-    const fw = xmax - xmin, fh = ymax - ymin;
-    if (Math.min(fw, fh) < DB_MIN_SIZE + 2) continue;
-
-    // Scale back to original image coordinates
-    boxes.push({
-      x0: Math.max(0, Math.round(xmin * pre.ratioW)),
-      y0: Math.max(0, Math.round(ymin * pre.ratioH)),
-      x1: Math.min(pre.srcW, Math.round(xmax * pre.ratioW)),
-      y1: Math.min(pre.srcH, Math.round(ymax * pre.ratioH)),
-      score,
-    });
+  } finally {
+    binMat.delete(); contours.delete(); hierarchy.delete();
+    output.dispose();
+    pre.tensor.dispose();
   }
 
-  // Cleanup
-  binMat.delete(); contours.delete(); hierarchy.delete();
-  output.dispose();
-  pre.tensor.dispose();
 
   // ── Split tall boxes using original-image horizontal projection ──
   // The prob map at detection resolution (~0.41x) can't resolve narrow row gaps.
@@ -650,7 +677,11 @@ async function _recognizeBox(canvas, box) {
   if (_encoderOnGpu) {
     const memory = await _gpuEncode(imgTensor);
     imgTensor.dispose();
-    if (_pool) return _pool.decodeMemory(new Float32Array(memory.data), [...memory.dims]);   // onnxruntime owns memory.data
+    if (_pool) {
+      const copy = new Float32Array(memory.data), dims = [...memory.dims];   // onnxruntime owns memory.data, so the worker gets a copy
+      memory.dispose();
+      return _pool.decodeMemory(copy, dims);
+    }
     await _ensureMainSessions();
     const result = await vietocrDecodeMemory(_dec, memory, _vocab, yieldToMain);
     memory.dispose();

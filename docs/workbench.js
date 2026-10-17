@@ -3,7 +3,7 @@
 'use strict';
 
 CT.workbench = (() => {
-  let zoom = 1, selectedBox = null, pane = null, getR = null, imgWrap = null, img = null, hl = null, flags = null, label = null, page = 0, selectCell = null, onImage = null;
+  let onPageImage = null, zoom = 1, selectedBox = null, pane = null, getR = null, imgWrap = null, img = null, hl = null, flags = null, label = null, page = 0, selectCell = null, onImage = null;
   const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
   const pct = (v, total) => (v / total * 100).toFixed(3) + '%';
 
@@ -15,6 +15,7 @@ CT.workbench = (() => {
     if (page !== p || img.getAttribute('src') !== info.url) { img.src = info.url; page = p; drawFlags(); }
     img.width = info.width; img.height = info.height;       // intrinsic ratio; CSS scales it to the pane
     label.textContent = CT.t('pagesLbl', { p, n: getR().pages });
+    img.alt = label.textContent;
   }
 
   function rect(div, b, info) {
@@ -104,14 +105,16 @@ CT.workbench = (() => {
       selectCell = onSelect; onImage = pick;
       CT.on('cell:select', selectCell);
       img.addEventListener('click', onImage);
-      CT.on('page:image', () => { if (page) showPage(page); });
+      onPageImage = () => { if (page) showPage(page); };
+      CT.on('page:image', onPageImage);
       const R = getR();
       const first = R.rows.find(r => r.page) || { page: 1 };
       showPage(first.page || 1);
     },
     unmount() {
       if (selectCell) CT.off('cell:select', selectCell);
-      selectCell = null; pane = null;
+      if (onPageImage) CT.off('page:image', onPageImage);
+      selectCell = null; onPageImage = null; pane = null;
     },
     refreshFlags() { if (pane) drawFlags(); },
   };

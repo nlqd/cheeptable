@@ -46,6 +46,10 @@ const CTStore = (() => {
       } catch (e) { /* try IndexedDB */ }
       try { await run('blobs', 'readwrite', s => s.put({ blob, type }, url)); return 'idb'; } catch (e) { return null; }
     },
+    async remove(url) {
+      try { await (await caches.open(CACHE)).delete(url); } catch (e) { /* none */ }
+      try { await run('blobs', 'readwrite', s => s.delete(url)); } catch (e) { /* none */ }
+    },
     async loadParts(url) {
       try {
         const range = IDBKeyRange.bound(url + '|0', url + '|9￿');

@@ -24,6 +24,7 @@ CT.t = (key, params) => {
 CT.addStrings({
   title: 'CheepTable — OCR tiếng Việt miễn phí, không quảng cáo',
   tagline: 'OCR tiếng Việt: chuyển bảng trong PDF và ảnh sang Excel.',
+  secProgress: 'Tiến độ', secResult: 'Kết quả',
   flagNote: 'Ô bị đánh dấu là chỗ chữ có thể sai: xem lại, sửa, rồi tải tệp Excel (.xlsx).',
   badgeFree: 'Miễn phí', badgeNoAds: 'Không quảng cáo', badgeNoSignup: 'Không cần đăng ký', badgeLocal: 'Chạy trong trình duyệt',
   modeSimple: 'Đơn giản', modeGuided: 'Từng bước', modeWorkbench: 'Đối chiếu',
@@ -43,6 +44,7 @@ CT.addStrings({
 }, {
   title: 'CheepTable — Free, ad-free Vietnamese OCR',
   tagline: 'Vietnamese OCR: turn tables in PDFs and images into Excel.',
+  secProgress: 'Progress', secResult: 'Result',
   flagNote: 'Flagged cells are where the text may be wrong: check them, fix them, then download the Excel file (.xlsx).',
   badgeFree: 'Free', badgeNoAds: 'No ads', badgeNoSignup: 'No sign-up', badgeLocal: 'Runs in your browser',
   modeSimple: 'Simple', modeGuided: 'Guided', modeWorkbench: 'Side by side',
@@ -65,12 +67,20 @@ const $ = id => document.getElementById(id);
 
 // ── Loading code and styles on demand ──
 CT.loaded = {};
+// Subresource integrity for the scripts taken from a CDN (exact versions, so the bytes never change).
+CT.SRI = {
+  'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js': 'sha384-/1qUCSGwTur9vjf/z9lmu/eCUYbpOTgSjmpbMQZ1/CtX2v/WcAIKqRv+U1DUCG6e',
+  'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.22.0/dist/ort.min.js': 'sha384-viYmIzsXdPb1ErOTdWrs+j0B4FjltSSGeHvt08cedBpoO5xvp3qMRSo05NZTuuzh',
+  'https://cdn.jsdelivr.net/npm/clipper-lib@6.4.2/clipper.js': 'sha384-oV9/r5hoq7qHFHfbghYwt50E2fe8J20vXRW0eIGQl20k40zMEAhSXMCh9ANASVB9',
+  'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js': 'sha384-vtjasyidUo0kW94K5MXDXntzOJpQgBKXmE7e2Ga4LG0skTTLeBi97eFAXsqewJjw',
+};
 CT.loadScript = (url, ordered = false) => CT.loaded[url] || (CT.loaded[url] = (async () => {
   for (let attempt = 1; ; attempt++) {
     try {
       await new Promise((ok, fail) => {
         const s = document.createElement('script');
         s.src = url;
+        if (CT.SRI[url]) { s.integrity = CT.SRI[url]; s.crossOrigin = 'anonymous'; }
         s.async = !ordered;        // ordered scripts download in parallel but run in insertion order
         s.onload = () => ok();
         s.onerror = () => { s.remove(); fail(new Error('Could not load ' + url)); };
@@ -86,13 +96,13 @@ CT.loadScript = (url, ordered = false) => CT.loaded[url] || (CT.loaded[url] = (a
 })());
 CT.loadCSS = (href) => CT.loaded[href] || (CT.loaded[href] = new Promise((ok, fail) => {
   const l = document.createElement('link');
-  l.rel = 'stylesheet'; l.href = href; l.onload = ok; l.onerror = () => fail(new Error('Could not load ' + href));
+  l.rel = 'stylesheet'; l.href = href; l.onload = ok; l.onerror = () => { delete CT.loaded[href]; l.remove(); fail(new Error('Could not load ' + href)); };
   document.head.appendChild(l);
 }));
 
 CT.ENGINE = {
   cdn: ['https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js', 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.22.0/dist/ort.min.js'],
-  local: ['vn_syllable_corrector.js', 'vietnamese_text_fixes_v2.js', 'confidence-tracking.js', 'boq-utils.js', 'boq-viet.js', 'boq-ocr.js',
+  local: ['boq-utils.js', 'boq-ocr.js',
     'boq-decode.js', 'boq-pool.js', 'boq-wire.js', 'boq-sessions.js', 'boq-onnx.js', 'boq-grid.js', 'boq-arith.js', 'boq-sequence.js', 'boq-extract.js', 'pipeline.js'],
 };
 // Everything the OCR job needs. Called when the visitor shows intent (pointer over the drop zone, focus, touch) and again,

@@ -13,6 +13,9 @@ const tests = {
   'X,YYY is read both as a decimal and as thousands'() {
     assert.deepEqual(arithParse('4,610'), [4.61, 4610]);
   },
+  'several commas are thousands marks'() {
+    assert.deepEqual(arithParse('1,234,567'), [1234567]);
+  },
   'text that is not a number has no value'() {
     assert.deepEqual(arithParse('Sil'), []);
     assert.deepEqual(arithParse('(6)=(4)x(5)'), []);

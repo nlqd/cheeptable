@@ -17,7 +17,7 @@ function arithParse(text) {
   const s = String(text || '').trim().replace(/[\s()[\]%]/g, '');
   if (!/\d/.test(s) || !/^[\d.,]+$/.test(s)) return [];
   let v;
-  if (s.includes(',') && !s.includes('.')) v = s.replace(',', '.');
+  if (s.includes(',') && !s.includes('.')) v = (s.match(/,/g).length > 1) ? s.replace(/,/g, '') : s.replace(',', '.');   // several commas can only be thousands marks
   else if (s.includes(',') && s.includes('.')) v = s.replace(/\./g, '').replace(',', '.');
   else if ((s.match(/\./g) || []).length > 1) v = s.replace(/\./g, '');
   else if (/^\d+\.\d{3}$/.test(s)) v = s.replace('.', '');

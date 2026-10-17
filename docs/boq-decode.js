@@ -64,9 +64,9 @@ async function _decodeCached(dec, memory, onYield) {
   const cross = await dec.init.run({ memory });
   const tokenIds = [VIETOCR_SOS];
   const probs = [];
-  const layers = cross.cross_k.dims[0];                 // decoder layers: the compact models need not have six
-  let pastK = new ort.Tensor('float32', new Float32Array(0), [layers, 8, 0, 32]);
-  let pastV = new ort.Tensor('float32', new Float32Array(0), [layers, 8, 0, 32]);
+  const [layers, heads, , headDim] = cross.cross_k.dims;   // read from the graph: the compact models need not match the original
+  let pastK = new ort.Tensor('float32', new Float32Array(0), [layers, heads, 0, headDim]);
+  let pastV = new ort.Tensor('float32', new Float32Array(0), [layers, heads, 0, headDim]);
   for (let step = 0; step < VIETOCR_MAX_LEN; step++) {
     const token = new ort.Tensor('int64', BigInt64Array.of(BigInt(tokenIds[tokenIds.length - 1])), [1]);
     const pos = new ort.Tensor('int64', BigInt64Array.of(BigInt(step)), [1]);

@@ -4,6 +4,7 @@
 class OcrPool {
   constructor(workers) {
     this.idle = workers;
+    this.alive = workers.length;
     this.queue = [];
     this.pending = new Map();
     this.nextId = 1;
@@ -57,10 +58,15 @@ class OcrPool {
     this._dispatch();
   }
 
+  // A worker that errored is not trusted again: it is stopped, its read fails, and when none is left the queue fails too.
   _fail(worker, message) {
     for (const [id, entry] of this.pending) {
       if (entry.worker === worker) { this.pending.delete(id); entry.job.reject(new Error(message)); }
     }
+    worker.terminate();
+    this.idle = this.idle.filter(w => w !== worker);
+    this.alive--;
+    if (this.alive <= 0) this.queue.splice(0).forEach(job => job.reject(new Error(message)));
   }
 
   get size() { return this.idle.length + this.pending.size; }
@@ -72,6 +78,7 @@ class OcrPool {
     this.queue.splice(0).forEach(job => job.reject(error));
     this.pending.forEach(entry => entry.job.reject(error));
     this.pending.clear();
+    this.idle = [];
     workers.forEach(w => w.terminate());
   }
 }

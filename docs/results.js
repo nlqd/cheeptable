@@ -5,7 +5,7 @@
 CT.addStrings({
   resTitle: 'Đã đọc {rows} hàng từ {pages} trang', resNone: 'Không tìm thấy bảng trong tệp này',
   noneHelp: 'Thử ảnh rõ hơn (ít nhất 150 dpi, chụp thẳng, đủ sáng) hoặc một trang có bảng. Tệp scan nghiêng nhiều hoặc quá mờ có thể không đọc được.',
-  download: 'Tải Excel (.xlsx)', again: 'Chọn tệp khác', preparing: 'Đang chuẩn bị Excel…', exported: 'Đã tạo tệp {name}.',
+  download: 'Tải Excel (.xlsx)', again: 'Chọn tệp khác', preparing: 'Đang chuẩn bị Excel…', exported: 'Đã tạo tệp {name}.', exportFailed: 'Không tạo được tệp Excel: {msg}',
   checkCount: '{n} ô cần kiểm tra', maybeCount: '{n} ô nghi ngờ nhẹ', allChecked: 'Không còn ô nào cần kiểm tra.',
   prev: 'Ô trước', next: 'Ô sau', onlyFlagged: 'Chỉ hiện hàng cần kiểm tra', hint: 'Enter để sửa hoặc xác nhận ô; ] và [ nhảy tới ô cần kiểm tra; mũi tên để di chuyển.',
   tableLabel: 'Bảng đã đọc từ tệp', rowNo: 'Số hàng',
@@ -20,7 +20,7 @@ CT.addStrings({
 }, {
   resTitle: 'Read {rows} rows from {pages} pages', resNone: 'No table was found in this file',
   noneHelp: 'Try a clearer image (at least 150 dpi, shot straight on, well lit) or a page that has a table. Badly tilted or blurred scans may not be readable.',
-  download: 'Download Excel (.xlsx)', again: 'Choose another file', preparing: 'Preparing Excel…', exported: 'Created {name}.',
+  download: 'Download Excel (.xlsx)', again: 'Choose another file', preparing: 'Preparing Excel…', exported: 'Created {name}.', exportFailed: 'Could not create the Excel file: {msg}',
   checkCount: '{n} cells to check', maybeCount: '{n} slightly doubtful cells', allChecked: 'No cells left to check.',
   prev: 'Previous cell', next: 'Next cell', onlyFlagged: 'Show only rows to check', hint: 'Enter edits or confirms a cell; ] and [ jump to cells to check; arrow keys move.',
   tableLabel: 'Table read from the file', rowNo: 'Row number',
@@ -295,6 +295,8 @@ CT.addStrings({
       XLSX.writeFile(wb, name);
       CT.say(CT.t('exported', { name }), 'info');
       R.steps.children[2].className = 'done'; R.steps.children[3].className = 'now';
+    } catch (e) {
+      CT.say(CT.t('exportFailed', { msg: e.message }), 'error');
     } finally { btn.disabled = false; btn.textContent = label; }
   }
 

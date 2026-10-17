@@ -26,9 +26,11 @@ def ctl(**kw):
     return json.load(urllib.request.urlopen(BASE + "/ctl?" + q))
 
 
-def fresh():
+def fresh(keep_cache=False):
     rodney("open", "about:blank"); rodney("open", url); rodney("waitload")
-    js("(caches.keys().then(k => Promise.all(k.map(n => caches.delete(n)))), 1)"); time.sleep(0.5)
+    if not keep_cache:
+        js("(caches.keys().then(k => Promise.all(k.map(n => caches.delete(n)))), 1)"); time.sleep(0.5)
+    js("(localStorage.removeItem('ct.models'), 1)")         # the pinned-hash check is skipped for a developer's own copy
     rodney("open", url); rodney("waitload"); time.sleep(0.8)
     js("(window.alert = () => {}, window.__retries = 0, CT.on('model:retry', () => window.__retries++), 1)")
     # the engine loads on demand, so its settings exist only after it has loaded; then point the CPU-path models at the flaky route
@@ -94,4 +96,18 @@ done = wait("!!(CT.state && CT.state.done) && !document.getElementById('stage-re
 sent = sum(ctl()["sent"].values())
 print("  downloaded %.1f MB before the kill; after reopening the job finished: %s, and the server sent %.1f MB of %.1f MB (the rest came from what was saved)" % (float(saved_mb), done, sent / 1e6, total / 1e6))
 ok_all += [done, sent < total * 0.85]
+print("Part 4: a damaged copy of the model in the browser cache is replaced")
+ctl(reset=1, cut=0, times=0, slow=0)
+fresh()
+rodney("file", "#fileInput", pdf)
+wait("!!(CT.state && CT.state.done) && !document.getElementById('stage-result').hidden", 180)
+js("(caches.open('boq-onnx-models-v1').then(c => c.keys().then(ks => Promise.all(ks.filter(r => /model\\.bin$/.test(r.url)).map(r => c.put(r, new Response(new Uint8Array(4000000))))))), 1)"); time.sleep(1)
+ctl(reset=1)
+fresh(keep_cache=True)
+rodney("file", "#fileInput", pdf)
+done = wait("!!(CT.state && CT.state.done) && !document.getElementById('stage-result').hidden", 180)
+sent = ctl()["sent"]
+mb = sum(v for k, v in sent.items() if k.endswith("model.bin")) / 1e6
+print("  job finished with the damaged copy in the cache: %s | model.bin fetched again: %.1f MB (the other four files came from the cache)" % (done, mb))
+ok_all += [done, mb > 8, sum(v for k, v in sent.items() if not k.endswith("model.bin")) < 1]
 print("%d of %d checks passed" % (sum(bool(x) for x in ok_all), len(ok_all)))

@@ -15,7 +15,7 @@ CT.addStrings({
   cancel: 'Hủy', cancelled: 'Đã hủy. Bạn có thể chọn tệp khác.', again: 'Chọn tệp khác',
   failed: 'Không xử lý được tệp: {msg}', retryHint: 'Thử tệp nhỏ hơn, tải lại trang, hoặc dùng trình duyệt khác.',
   barLabel: 'Tiến độ xử lý', announceDone: 'Đã xong bước nhận dạng.', announcePct: 'Đã được {p} phần trăm.',
-  pageImg: 'Ảnh trang {p}',
+  pageImg: 'Ảnh trang {p}', pagesList: 'Các trang',
   retrying: 'Kết nối chập chờn, đang thử lại ({a}/{m})…', pageRetry: 'Trang {p} gặp lỗi, đang thử lại…', retryBtn: 'Thử lại',
   netFailed: 'Không tải được dữ liệu cần thiết, có thể do mạng chập chờn. Phần đã tải được giữ lại nên lần thử lại sẽ nhanh hơn.',
 }, {
@@ -30,7 +30,7 @@ CT.addStrings({
   cancel: 'Cancel', cancelled: 'Cancelled. You can choose another file.', again: 'Choose another file',
   failed: 'The file could not be processed: {msg}', retryHint: 'Try a smaller file, reload the page, or use another browser.',
   barLabel: 'Processing progress', announceDone: 'Recognition finished.', announcePct: '{p} percent done.',
-  pageImg: 'Page {p} image',
+  pageImg: 'Page {p} image', pagesList: 'Pages',
   retrying: 'The connection is unstable, trying again ({a}/{m})…', pageRetry: 'Page {p} hit an error, trying again…', retryBtn: 'Try again',
   netFailed: 'The data needed could not be downloaded, probably because of an unstable connection. What was already downloaded is kept, so trying again will be faster.',
 });
@@ -73,7 +73,7 @@ CT.addStrings({
     meters.append(mPages, mCells, mElapsed, mEta);
     const models = el('div', 'models'); models.hidden = true;
     const mBar = el('div', 'minibar'); mBar.append(el('span')); models.append(el('span', 'mtext'), mBar);
-    const pages = el('ol', 'pages'); pages.setAttribute('aria-label', '');
+    const pages = el('ol', 'pages'); pages.setAttribute('aria-label', CT.t('pagesList'));
     const tick = el('div', 'ticker'); tick.setAttribute('aria-hidden', 'true');
     const live = el('p', 'sr'); live.setAttribute('role', 'status'); live.setAttribute('aria-live', 'polite');
     const cancel = el('button', 'btn quiet', ''); cancel.type = 'button'; cancel.id = 'cancelBtn'; cancel.addEventListener('click', () => CT.cancel());
