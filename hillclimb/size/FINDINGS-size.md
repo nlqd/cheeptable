@@ -68,6 +68,13 @@ The same model with float convolutions on CPU took 156 s; the int8 convolutions 
 
 The student is more confident (median description confidence 93.5 against 92.5), so the old cutoffs flagged fewer cells. Recalibrated on the contract (`flags_calib.py`) to flag as many cells as before: check below 91 (16.5% of cells, 96% really wrong), maybe below 93 (40%, 87%). Numbers: cutoff 80 kept.
 
+## A second, larger check: 52 public documents (`benchmark/manifest2.json`, held out of all training)
+
+Collected by an agent: price lists, forms, timetables, financial statements, legal text, papers, medical lists, old scans, borderless tables. 35 born-digital, 17 scanned. The PDFs are not committed.
+
+- Line reading (`bench2.py`, 4,434 lines from the 35 born-digital documents, clean and degraded, answer = text layer; some text layers are garbled legacy fonts, so absolute errors are high): teacher 0.1137, student x2 0.1161, difference +0.0024, 95% interval over documents [-0.0046, +0.0140]. Not distinguishable. Per category the student is better on price lists (-0.007) and legal text (-0.002) and worse on forms (+0.038, driven by one customs form whose text is rows of placeholder "XXXX" where the count of repeated letters is misread).
+- The whole app on the first 3 pages of each document (`corpus_e2e.py`): no errors or crashes. All 35 born-digital documents give rows. Of the 17 scans, 10 give rows and 7 report "no table": five 1948 gazette pages (prose, expected) and two scanned financial statements with ruled tables (not expected, not yet investigated). "Gives rows" is coverage only, there is no answer key for the structure.
+
 ## Not done, not known
 
 - No real phone, Safari or Firefox; externalData is only exercised in Chrome. Memory per worker was not measured (estimated 70 to 80 MB against about 250 MB before).
