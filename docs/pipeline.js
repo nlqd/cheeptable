@@ -181,6 +181,7 @@ CT.runJob = async function (file) {
         console.error('[OCR Error] Page ' + p + ':', error);
         (CT.state.failedPages = CT.state.failedPages || []).push(p);
         CT.emit('page:error', { page: p, message: error.message });
+        page.cleanup();
         continue;
       }
     }

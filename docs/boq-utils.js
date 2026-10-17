@@ -22,10 +22,6 @@ function cluster(values, tol = LINE_TOLERANCE) {
   return clusters;
 }
 
-function escHtml(s) {
-  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-}
-
 // ── Vietnamese Number Parser ──
 function parseVnNumber(s) {
   s = s.trim();

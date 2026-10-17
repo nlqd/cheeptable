@@ -89,6 +89,22 @@ Also: the quantity x price = total check was applied to any table with six or mo
 
 Not measured: the structure of these tables has no answer key. On the first six pages of the 52 documents, 40 give a table and none fail; the 12 without one are short documents whose pages are not tables or have layouts the gutter method does not split (checked by hand on two). The contract's rows are byte-identical before and after.
 
+## The student against the original model, in the whole app, on the 52 documents
+
+Both models packaged the same way (the original with fp16 weights, same int8 convolutions) and run through the same page code over the first 6 pages of every document (`ab.sh`, `ab_report.py`).
+
+- 40 of 52 documents give identical output: they come from a text layer and no model is involved.
+- The 12 that use the recogniser: the two scanned financial statements differ by 0.017 and 0.006 of characters, the legal scans by 0.007 to 0.118, the 1948 French-Vietnamese gazette scans by 0.14 to 0.24, a receipt form by 0.17. Differing says nothing about which is right, and old print is hard for both.
+- Where the answer is known (`ab_pages.py`): 11 table pages of born-digital documents turned into pictures at 200 dpi, the text-layer table as the key. Student: mean row recall 0.416, character error 0.406, same cell count in 0.674 of matched rows. Original: 0.414, 0.401, 0.674. Page by page they are within 0.005 of each other except one drug list (both fail: 5 rows out of 52). So the smaller model is as good as the original on these pages.
+- The same table shows how weak the picture path is on dense tables, for either model: recall under 0.1 on a price list, a score list and a land-price table, 0.38 on a timetable, 0 on one paper. Row splitting and merging, not the text, dominates the error there. This is the next thing to work on.
+
+## What these numbers do not show
+
+- The model was chosen among about 25 variants on the contract and benchmark set that it is then reported on. The held-out checks above (52 documents) are the independent part, and they agree.
+- `golden_v2.xlsx` was corrected using readings from our own audit runs (`make_golden_v2.py`, `audit_p*.jsonl`; the script that produced the audits is not committed). Scores against it can favour our own models' habits.
+- `line_bench.py` only scores lines whose characters are in the recogniser's vocabulary and which are at least 5 characters and 25 px wide. Short units and numbers are covered by the contract cells; the diameter sign is not in the vocabulary and is not scored.
+- The cell shard (`make_cells.py`) was designed after seeing how the student failed on the contract's cells. The 52-document check has few ruled cells, so it says little about that fix.
+
 ## Not done, not known
 
 - No real phone, Safari or Firefox; externalData is only exercised in Chrome. Memory per worker was not measured (estimated 70 to 80 MB against about 250 MB before).
