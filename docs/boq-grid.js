@@ -49,6 +49,30 @@ function gridTextBands(rowInk, minGap, minH) {
   return bands.filter(([a, b]) => b - a >= minH);
 }
 
+// Lines set tightly (justified text, accents touching the line above) leave no blank row between them and come out as one tall band.
+// A band much taller than a line is cut at the row with the least ink near each expected line boundary. `lineH` is a typical line
+// height on the page; `counts` is the ink per row of the cell.
+function gridSplitTall(bands, counts, lineH, ratio = 1.7, window = 0.3) {
+  const out = [];
+  for (const [a, b] of bands) {
+    const h = b - a;
+    if (!(lineH > 0) || h < ratio * lineH) { out.push([a, b]); continue; }
+    const n = Math.max(2, Math.round(h / lineH));
+    let from = a;
+    const cuts = [];
+    for (let k = 1; k < n; k++) {
+      const target = a + k * h / n;
+      let best = -1;
+      for (let r = Math.max(a + 2, Math.floor(target - window * lineH)); r <= Math.min(b - 2, Math.ceil(target + window * lineH)); r++) {
+        if (best < 0 || counts[r] < counts[best] || (counts[r] === counts[best] && Math.abs(r - target) < Math.abs(best - target))) best = r;
+      }
+      if (best >= 0) cuts.push(best);
+    }
+    for (const c of [...cuts, b]) { if (c - from >= 3) out.push([from, c]); from = c; }
+  }
+  return out;
+}
+
 // Column lines from the per-column vertical-line mass (pixels of vertical ruling in each x). A real table line is
 // about as strong as the strongest one; letter strokes are weak. The page-edge shadow is ignored when setting the
 // scale. (A fixed pixel threshold gave 14 "columns" on a short table.)
@@ -118,7 +142,8 @@ async function findGrid(canvas) {
     for (let y = 0; y < h; y++) if (rowSum.data32S[y] > 255 * w * 0.25) yHits.push(y);
     const ys = gridClusters(yHits, 4 * f).map(y => Math.round(y / k));
     const xs = gridPickColumns(Array.from(colSum.data32S.subarray(0, w)), f).map(x => Math.round(x / k));
-    return xs.length >= 3 && ys.length >= 3 ? { xs, ys, f: full } : null;
+    // a few boxes on a page of text are not a table: the extractor wants at least 20 cells, so a smaller grid is not used
+    return xs.length >= 3 && ys.length >= 3 && (xs.length - 1) * (ys.length - 1) >= 20 ? { xs, ys, f: full } : null;
   } finally {
     mats.forEach(m => m.delete());
   }
@@ -127,25 +152,35 @@ async function findGrid(canvas) {
 // ── Reading the grid ──
 
 // Text lines inside one cell, as canvas-space boxes hugging the ink horizontally.
-function _cellLineBoxes(ctx, cell, f) {
+// Ink per pixel row of a cell, and the bands of rows that are text lines.
+function _cellBands(ctx, cell, f) {
   const { x, y, width, height } = cell;
   const px = ctx.getImageData(x, y, width, height).data;
   const dark = (i) => (px[i] * 0.299 + px[i + 1] * 0.587 + px[i + 2] * 0.114) < GRID_INK;
-  const rowInk = new Array(height).fill(false);
-  for (let r = 0; r < height; r++) {
-    for (let c = 0; c < width; c++) {
-      if (dark((r * width + c) * 4)) { rowInk[r] = true; break; }
-    }
-  }
+  const counts = new Array(height).fill(0);
+  for (let r = 0; r < height; r++) for (let c = 0; c < width; c++) if (dark((r * width + c) * 4)) counts[r]++;
+  const bands = gridTextBands(counts.map(n => n > 0), Math.max(2, Math.round(GRID_BAND_GAP * f)), Math.round(GRID_BAND_MIN_H * f));
+  return { px, dark, counts, bands };
+}
+
+function _cellLineBoxes(ctx, cell, f, lineH, scanned) {
+  const { x, y, width } = cell;
+  const { dark, counts, bands } = scanned || _cellBands(ctx, cell, f);
   const margin = Math.round(3 * f);
-  return gridTextBands(rowInk, Math.max(2, Math.round(GRID_BAND_GAP * f)), Math.round(GRID_BAND_MIN_H * f)).map(([a, b]) => {
+  const extent = (a, b) => {
     let left = width, right = -1;
     for (let r = a; r < b; r++) {
       for (let c = 0; c < width; c++) {
         if (dark((r * width + c) * 4)) { left = Math.min(left, c); right = Math.max(right, c); }
       }
     }
-    if (gridIsRuleFragment(b - a, height, right - left + 1)) return null;
+    return [left, right];
+  };
+  // Only a band wider than it is tall can be several lines of text: a tall narrow band is sideways text and stays whole.
+  const pieces = bands.flatMap(([a, b]) => { const [l, r] = extent(a, b); return r - l + 1 >= 1.5 * (b - a) ? gridSplitTall([[a, b]], counts, lineH) : [[a, b]]; });
+  return pieces.map(([a, b]) => {
+    const [left, right] = extent(a, b);
+    if (gridIsRuleFragment(b - a, cell.height, right - left + 1)) return null;
     return { x0: x + Math.max(0, left - margin), x1: x + Math.min(width, right + 1 + margin), y0: y + a, y1: y + b };
   }).filter(Boolean);
 }
@@ -159,11 +194,26 @@ async function ocrPageWithGrid(canvas, pageNum, grid) {
   const cells = gridCells(grid.xs, grid.ys, grid.f);
   const words = [];
 
+  // A typical text line in each column (a description column has taller letters than a column of numbers): the 70th percentile of
+  // the band heights, so a few merged lines do not inflate it.
+  const scans = [];
+  const byCol = new Map();
+  for (let i = 0; i < cells.length; i++) {
+    const sc = _cellBands(ctx, cells[i], grid.f);
+    scans.push(sc);
+    const list = byCol.get(cells[i].col) || [];
+    sc.bands.forEach(([a, b]) => list.push(b - a));
+    byCol.set(cells[i].col, list);
+    if (i % 20 === 0) await yieldToMain();
+  }
+  const lineH = new Map([...byCol].map(([col, hs]) => [col, hs.sort((p, q) => p - q)[Math.floor(0.7 * (hs.length - 1))] || 0]));
+
   const items = [];
   for (let i = 0; i < cells.length; i++) {
-    for (const box of _cellLineBoxes(ctx, cells[i], grid.f)) {
+    for (const box of _cellLineBoxes(ctx, cells[i], grid.f, lineH.get(cells[i].col), scans[i])) {
       if (box.x1 - box.x0 >= 5 && box.y1 - box.y0 >= 5) items.push({ box, cell: cells[i] });
     }
+    scans[i] = null;
     if (i % 20 === 0) await yieldToMain();
   }
 
@@ -191,4 +241,4 @@ async function ocrPageWithGrid(canvas, pageNum, grid) {
   return { words, lines: [], cells };
 }
 
-if (typeof module !== 'undefined') module.exports = { gridClusters, gridTextBands, gridCells, gridPickColumns, gridIsRuleFragment };
+if (typeof module !== 'undefined') module.exports = { gridClusters, gridTextBands, gridSplitTall, gridCells, gridPickColumns, gridIsRuleFragment };

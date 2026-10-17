@@ -12,3 +12,12 @@ __pycache__/
 queue*.sh
 hosted_teacher/
 corpus_rows*/
+# page pictures, captured OCR output and extractor results (rebuilt by capture.py / lab.mjs)
+lab/
+lab_*/
+lab300/
+out300/
+ab_pages/
+ab_pages_results.json
+bench2_reads.json
+*.png

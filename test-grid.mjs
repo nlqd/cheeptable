@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 
-const { gridClusters, gridTextBands, gridCells, gridPickColumns, gridIsRuleFragment } = createRequire(import.meta.url)('./docs/boq-grid.js');
+const { gridClusters, gridTextBands, gridSplitTall, gridCells, gridPickColumns, gridIsRuleFragment } = createRequire(import.meta.url)('./docs/boq-grid.js');
 
 const tests = {
   'a thick ruled line collapses to one position'() {
@@ -24,6 +24,16 @@ const tests = {
   'a gap shorter than the minimum keeps one line (accent above its letters)'() {
     const ink = [1, 1, 1, 0, 0, 1, 1, 1, 1, 1, 1].map(Boolean);
     assert.deepEqual(gridTextBands(ink, 3, 6), [[0, 11]]);
+  },
+  'two lines that touch are cut where the ink is thinnest'() {
+    const counts = [0, 9, 9, 9, 9, 9, 9, 2, 9, 9, 9, 9, 9, 9, 0];            // one band, a faint valley at row 7
+    assert.deepEqual(gridSplitTall([[1, 14]], counts, 7), [[1, 7], [7, 14]]);
+  },
+  'a band of one line height is left alone'() {
+    assert.deepEqual(gridSplitTall([[1, 9]], new Array(10).fill(5), 7), [[1, 9]]);
+  },
+  'without a line height nothing is split'() {
+    assert.deepEqual(gridSplitTall([[0, 40]], new Array(40).fill(5), 0), [[0, 40]]);
   },
   'a speck is not a text line'() {
     const ink = [0, 0, 1, 1, 0, 0, 0, 0, 0, 0].map(Boolean);
