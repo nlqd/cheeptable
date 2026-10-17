@@ -29,7 +29,7 @@ CT.addStrings({
   modeSimpleHint: 'Chọn tệp, nhận bảng, tải Excel', modeGuidedHint: 'Bốn bước, có tiến độ chi tiết từng trang',
   modeWorkbenchHint: 'Trang gốc bên cạnh bảng, bấm ô để xem đúng chỗ',
   modeLabel: 'Cách hiển thị', langLabel: 'Ngôn ngữ',
-  sampleBtn: 'Thử với tệp mẫu', sampleLink: 'Chưa có tệp? Thử với tệp mẫu', dropMain: 'Kéo tệp PDF hoặc ảnh vào đây', dropOr: 'hoặc bấm để chọn tệp',
+  dropMain: 'Kéo tệp PDF hoặc ảnh vào đây', dropOr: 'hoặc bấm để chọn tệp',
   chooseFile: 'Chọn tệp', formats: 'PDF, JPG, PNG · tối đa 50 MB · hoặc dán ảnh bằng Ctrl+V', dropHere: 'Thả tệp để bắt đầu', optionsLabel: 'Tùy chọn',
   lowmemLabel: 'Tiết kiệm bộ nhớ (bật khi điện thoại bị treo hoặc tải lại giữa chừng)',
   cachedNote: 'Mô hình nhận dạng đã có sẵn trên thiết bị này: bắt đầu ngay, không cần tải lại.',
@@ -49,7 +49,7 @@ CT.addStrings({
   modeSimpleHint: 'Pick a file, get the table, download Excel', modeGuidedHint: 'Four steps with detailed per-page progress',
   modeWorkbenchHint: 'Source page beside the table; click a cell to see it in place',
   modeLabel: 'Layout', langLabel: 'Language',
-  sampleBtn: 'Try the sample file', sampleLink: 'No file yet? Try the sample', dropMain: 'Drop a PDF or an image here', dropOr: 'or click to choose a file',
+  dropMain: 'Drop a PDF or an image here', dropOr: 'or click to choose a file',
   chooseFile: 'Choose file', formats: 'PDF, JPG, PNG · up to 50 MB · or paste an image with Ctrl+V', dropHere: 'Drop the file to start', optionsLabel: 'Options',
   lowmemLabel: 'Save memory (turn on if the phone freezes or reloads in the middle)',
   cachedNote: 'The recognition models are already on this device: it starts at once, nothing to download.',
@@ -190,11 +190,6 @@ CT.showStage = (name) => {
   CT.emit('stage', name);
 };
 
-CT.loadSample = async () => {
-  const res = await fetch('sample.pdf');
-  if (!res.ok) { CT.say(CT.t('badType', { name: 'sample.pdf' }), 'error'); return; }
-  CT.start([new File([await res.blob()], 'sample.pdf', { type: 'application/pdf' })]);
-};
 
 // ── Start ──
 CT.lang = CT.pref.get('lang', 'vi') === 'en' ? 'en' : 'vi';
@@ -208,7 +203,6 @@ drop.addEventListener('dragover', e => { e.preventDefault(); drop.classList.add(
 drop.addEventListener('dragleave', () => drop.classList.remove('dragover'));
 drop.addEventListener('drop', e => { e.preventDefault(); drop.classList.remove('dragover'); CT.start(e.dataTransfer.files); });
 input.addEventListener('change', e => CT.start(e.target.files));
-$('sampleBtn').addEventListener('click', CT.loadSample);
 document.querySelectorAll('input[name="mode"]').forEach(r => r.addEventListener('change', () => CT.setMode(r.value)));
 document.querySelectorAll('[data-lang-btn]').forEach(b => b.addEventListener('click', () => CT.setLang(b.dataset.langBtn)));
 
