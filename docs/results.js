@@ -44,10 +44,12 @@ CT.addStrings({
     : CT.t(f.reason === 'lowNum' ? 'flagLowNum' : 'flagLowText', { c: Math.round(f.conf ?? 0) });
 
   // ── Building the screen ──
-  function render({ rows, pages, fileName }) {
+  // `previous`: the previous render, when only the language changed. Its rows are already stripped of header rows, so the
+  // detected names and the dropped count are carried over instead of being looked for a second time.
+  function render({ rows, pages, fileName, previous }) {
     const root = $('stage-result');
     root.textContent = '';
-    const norm = normalizeHeaders(rows);
+    const norm = previous ? { rows, names: previous.detected, dropped: previous.dropped } : normalizeHeaders(rows);
     const kept = norm.rows;
     extractedRows = kept;
     const dataRows = kept.filter(r => r.type === 'data' && r.cells.some(c => val(c).trim()));
@@ -301,5 +303,5 @@ CT.addStrings({
   }
 
   CT.on('results:render', render);
-  CT.on('lang', () => { if (R && $('stage-result') && !$('stage-result').hidden) { render({ rows: R.rows, pages: R.pages, fileName: R.fileName }); } });
+  CT.on('lang', () => { if (R && $('stage-result') && !$('stage-result').hidden) { render({ rows: R.rows, pages: R.pages, fileName: R.fileName, previous: R }); } });
 })();
