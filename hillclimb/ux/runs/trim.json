@@ -1,0 +1,16 @@
+{
+ "label": "trim",
+ "url": "http://localhost:8080/docs/index.html",
+ "runs": 2,
+ "fcp": 34.0,
+ "lcp": 34.0,
+ "dcl": 7.0,
+ "load": 8.0,
+ "cls": 0.0,
+ "longTaskMs": 0.0,
+ "requests": 4.0,
+ "blockingScripts": 0.0,
+ "inlineScriptBytes": 1030.0,
+ "bytesAtLoad": 13195,
+ "axeEmpty": []
+}

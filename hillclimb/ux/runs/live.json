@@ -1,0 +1,26 @@
+{
+ "label": "live",
+ "url": "https://ocr.dzungngo.com/",
+ "runs": 3,
+ "fcp": 76,
+ "lcp": 76,
+ "dcl": 78,
+ "load": 78,
+ "cls": 0.0116,
+ "longTaskMs": 0,
+ "requests": 3,
+ "blockingScripts": 0,
+ "inlineScriptBytes": 1482,
+ "bytesAtLoad": 9979,
+ "axeEmpty": [],
+ "job": {
+  "jobMs": 32966,
+  "updates": 889,
+  "firstUpdateMs": 7,
+  "maxGapMs": 720,
+  "windowsWithUpdate": 0.97,
+  "updatesPerSec": 27,
+  "finished": true
+ },
+ "axeResult": []
+}

@@ -1,0 +1,16 @@
+{
+ "label": "post-store",
+ "url": "http://localhost:8080/docs/index.html",
+ "runs": 2,
+ "fcp": 22.0,
+ "lcp": 22.0,
+ "dcl": 12.5,
+ "load": 13.0,
+ "cls": 0.0,
+ "longTaskMs": 0.0,
+ "requests": 4.0,
+ "blockingScripts": 0.0,
+ "inlineScriptBytes": 1482.0,
+ "bytesAtLoad": 14067,
+ "axeEmpty": []
+}
