@@ -23,11 +23,10 @@ CT.t = (key, params) => {
 };
 CT.addStrings({
   title: 'CheepTable — OCR tiếng Việt miễn phí, không quảng cáo',
-  tagline: 'OCR tiếng Việt miễn phí, không quảng cáo: chuyển bảng trong PDF và ảnh sang Excel, ngay trong trình duyệt.',
-  badgeFree: 'Miễn phí', badgeNoAds: 'Không quảng cáo', badgeNoSignup: 'Không cần đăng ký', badgeLocal: 'Chạy trong trình duyệt', footerFree: 'Miễn phí, không quảng cáo.',
+  tagline: 'OCR tiếng Việt: chuyển bảng trong PDF và ảnh sang Excel.',
+  flagNote: 'Ô bị đánh dấu là chỗ chữ có thể sai: xem lại, sửa, rồi tải tệp Excel (.xlsx).',
+  badgeFree: 'Miễn phí', badgeNoAds: 'Không quảng cáo', badgeNoSignup: 'Không cần đăng ký', badgeLocal: 'Chạy trong trình duyệt',
   modeSimple: 'Đơn giản', modeGuided: 'Từng bước', modeWorkbench: 'Đối chiếu',
-  modeSimpleHint: 'Chọn tệp, nhận bảng, tải Excel', modeGuidedHint: 'Bốn bước, có tiến độ chi tiết từng trang',
-  modeWorkbenchHint: 'Trang gốc bên cạnh bảng, bấm ô để xem đúng chỗ',
   modeLabel: 'Cách hiển thị', langLabel: 'Ngôn ngữ',
   dropMain: 'Kéo tệp PDF hoặc ảnh vào đây', dropOr: 'hoặc bấm để chọn tệp',
   chooseFile: 'Chọn tệp', formats: 'PDF, JPG, PNG · tối đa 50 MB · hoặc dán ảnh bằng Ctrl+V', dropHere: 'Thả tệp để bắt đầu', optionsLabel: 'Tùy chọn',
@@ -43,11 +42,10 @@ CT.addStrings({
   skip: 'Bỏ qua đến nội dung chính',
 }, {
   title: 'CheepTable — Free, ad-free Vietnamese OCR',
-  tagline: 'Free, ad-free Vietnamese OCR: turn tables in PDFs and images into Excel, right in your browser.',
-  badgeFree: 'Free', badgeNoAds: 'No ads', badgeNoSignup: 'No sign-up', badgeLocal: 'Runs in your browser', footerFree: 'Free, no ads.',
+  tagline: 'Vietnamese OCR: turn tables in PDFs and images into Excel.',
+  flagNote: 'Flagged cells are where the text may be wrong: check them, fix them, then download the Excel file (.xlsx).',
+  badgeFree: 'Free', badgeNoAds: 'No ads', badgeNoSignup: 'No sign-up', badgeLocal: 'Runs in your browser',
   modeSimple: 'Simple', modeGuided: 'Guided', modeWorkbench: 'Side by side',
-  modeSimpleHint: 'Pick a file, get the table, download Excel', modeGuidedHint: 'Four steps with detailed per-page progress',
-  modeWorkbenchHint: 'Source page beside the table; click a cell to see it in place',
   modeLabel: 'Layout', langLabel: 'Language',
   dropMain: 'Drop a PDF or an image here', dropOr: 'or click to choose a file',
   chooseFile: 'Choose file', formats: 'PDF, JPG, PNG · up to 50 MB · or paste an image with Ctrl+V', dropHere: 'Drop the file to start', optionsLabel: 'Options',
@@ -133,8 +131,6 @@ function applyLang() {
 function applyMode() {
   document.body.dataset.mode = CT.mode;
   document.querySelectorAll('input[name="mode"]').forEach(r => { r.checked = r.value === CT.mode; });
-  const hint = $('modeHint');
-  if (hint) hint.textContent = CT.t('mode' + CT.mode[0].toUpperCase() + CT.mode.slice(1) + 'Hint');
   CT.emit('mode', CT.mode);
 }
 CT.setMode = (m) => { CT.mode = m; CT.pref.set('mode', m); applyMode(); };
