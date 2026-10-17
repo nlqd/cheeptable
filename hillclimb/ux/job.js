@@ -8,8 +8,9 @@ window.__ux = (() => {
       obs.forEach(o => o.disconnect());
       const watch = () => targets().forEach(el => {
         if (el.__uxWatched) return; el.__uxWatched = true;
-        const o = new MutationObserver(() => stamps.push(performance.now() - t0));
-        o.observe(el, { subtree: true, childList: true, characterData: true, attributes: true });
+        // what a person can see change: text, new nodes, and the style/class/hidden of the bars and thumbnails (not the screen-reader copy)
+        const o = new MutationObserver((list) => { if (list.some(m => !(m.target.nodeType === 1 ? m.target : m.target.parentElement)?.closest('.sr'))) stamps.push(performance.now() - t0); });
+        o.observe(el, { subtree: true, childList: true, characterData: true, attributes: true, attributeFilter: ['style', 'class', 'hidden'] });
         obs.push(o);
       });
       watch(); this.timer = setInterval(watch, 200);   // panels may be created after the start

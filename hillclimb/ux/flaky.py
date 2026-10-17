@@ -8,7 +8,7 @@ a = sys.argv
 url, pdf = a[1], a[2]
 port = a[a.index("--port") + 1] if "--port" in a else "9333"
 BASE = "http://localhost:8080"
-HOSTED = "/home/dungngo/experiments/vietocr/hillclimb/size/hosted/vietocr/cheep-v1/"
+HOSTED = str(__import__("pathlib").Path(__file__).resolve().parent.parent / "size" / "hosted" / "vietocr" / "cheep-v1") + "/"      # see size/FINDINGS-size.md for how the package is staged
 FILES = ["model.bin", "enc.skel.onnx", "encq.skel.onnx", "init.skel.onnx", "step.skel.onnx"]    # the files a CPU visit fetches
 
 

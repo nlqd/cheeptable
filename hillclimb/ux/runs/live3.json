@@ -1,0 +1,16 @@
+{
+ "label": "live3",
+ "url": "https://ocr.dzungngo.com/?cb=32750",
+ "runs": 5,
+ "fcp": 64,
+ "lcp": 64,
+ "dcl": 94,
+ "load": 94,
+ "cls": 0,
+ "longTaskMs": 0,
+ "requests": 3,
+ "blockingScripts": 0,
+ "inlineScriptBytes": 1482,
+ "bytesAtLoad": 9997,
+ "axeEmpty": []
+}

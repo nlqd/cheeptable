@@ -1,0 +1,16 @@
+{
+ "label": "ux3",
+ "url": "http://localhost:8080/docs/index.html",
+ "runs": 3,
+ "fcp": 20,
+ "lcp": 20,
+ "dcl": 6,
+ "load": 7,
+ "cls": 0,
+ "longTaskMs": 0,
+ "requests": 3,
+ "blockingScripts": 0,
+ "inlineScriptBytes": 1482,
+ "bytesAtLoad": 9969,
+ "axeEmpty": []
+}
