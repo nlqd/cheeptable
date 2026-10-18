@@ -117,6 +117,13 @@ function arithRepair(q, p, t) {
 }
 
 // Table rows from ocrTableExtract: data rows have cells [stt, description, unit, qty, price, total].
+// The engine's row layout is [number, description, unit, quantity, price, total]; tell whether a table looks like it.
+const looksLikeBoq = (rows) => {
+  const val = (c) => (c && typeof c === 'object') ? String(c.value ?? '') : String(c ?? '');
+  const data = rows.filter(r => r.type === 'data' && r.cells.length === 6);
+  return data.length >= 3 && data.filter(r => /^\d{1,4}$/.test(val(r.cells[0]).trim()) && /\d/.test(val(r.cells[5]))).length >= data.length * 0.5;
+};
+
 function repairArithmetic(rows) {
   let fixed = 0;
   for (const row of rows) {
@@ -136,4 +143,4 @@ function repairArithmetic(rows) {
   return { rows, fixed };
 }
 
-if (typeof module !== 'undefined') module.exports = { arithParse, arithHolds, arithRepair, repairArithmetic };
+if (typeof module !== 'undefined') module.exports = { arithParse, arithHolds, arithRepair, repairArithmetic, looksLikeBoq };

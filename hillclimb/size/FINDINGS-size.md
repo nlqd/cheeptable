@@ -113,6 +113,14 @@ Tried and dropped: cutting very wide lines into pieces before reading raised not
 
 Caveats: the key is the text layer of the same documents, the structure score (pair F1, from the same gutter method as the key) did not move and is not trustworthy, and the 36 pages come from the same 35 documents the other checks use.
 
+## A phone photo of a price board that failed (received by Taildrop)
+
+A photo of a service price board (12 vehicle models by 15 jobs, a time row and a price row per job, red banner, warm light, faint rules) came out as 7 rows of invented words ("Contraction", "038000000099"). Causes, all fixed:
+
+1. The grid finder found 13 columns but only 8 rows (the faint horizontal rules were missed), so each grid row held four or more table rows, and a cell's lines were read together as one block. Such a grid is now recognised (most words sit in rows whose median cell has 3 or more lines, or the cells read at average confidence under 60) and the page is read as text instead. A grid row that is only partly crowded is cut into bands by the vertical position of its lines.
+2. The bill-of-quantities repairs (row numbers count up, quantity x price = total) ran on every table with six or more columns. On this table they turned 24.000 into 576.000.000. They now run only when the table looks like a bill of quantities (`looksLikeBoq`, moved into `boq-arith.js`).
+3. Result: 33 rows with the right step numbers, descriptions, times and prices in most cells; some cells drift one column and a few reads are wrong ("12:000"). Not measured against a key: the photo has no text layer.
+
 ## What these numbers do not show
 
 - The model was chosen among about 25 variants on the contract and benchmark set that it is then reported on. The held-out checks above (52 documents) are the independent part, and they agree.

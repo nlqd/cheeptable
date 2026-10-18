@@ -478,29 +478,59 @@ function wordGridExtract(pageWords, pageCells) {
 // Same result shape as the geometry path. Rows and columns are the ruled-grid indices, compacted to 0..n-1.
 function gridCellsToWordGrid(pageWords, pageCells) {
   const ids = (key) => [...new Set(pageCells.map(c => c[key]))].sort((a, b) => a - b);
-  const rowIds = ids('row'), colIds = ids('col');
-  const numRows = rowIds.length, numCols = colIds.length;
-  const rowAt = new Map(rowIds.map((id, i) => [id, i]));
+  const gridRowIds = ids('row'), colIds = ids('col');
+  const numCols = colIds.length;
   const colAt = new Map(colIds.map((id, i) => [id, i]));
-
-  const colLefts = [], rowTops = [];
-  for (const c of pageCells) {
-    colLefts[colAt.get(c.col)] = c.x;
-    rowTops[rowAt.get(c.row)] = c.y;
-  }
+  const colLefts = [];
+  for (const c of pageCells) colLefts[colAt.get(c.col)] = c.x;
+  const topOfRow = new Map(pageCells.map(c => [c.row, c.y]));
   const maxRight = pageCells.reduce((m, c) => Math.max(m, c.x + c.width), 0);
   const maxBottom = pageCells.reduce((m, c) => Math.max(m, c.y + c.height), 0);
+
+  // A grid whose horizontal lines were mostly missed (a photo with faint rules) has rows that each hold several table rows: most of
+  // their cells then hold three or more lines. A wrapped description is one tall cell among cells of one line, so it is not split.
+  // Such a row is cut into bands by the vertical position of its lines.
+  const byRow = new Map();
+  for (const w of pageWords) byRow.set(w.cell.row, [...(byRow.get(w.cell.row) || []), w]);
+  const band = new Map();                                          // word -> band number inside its grid row
+  const bandsOf = new Map();
+  for (const [row, ws] of byRow) {
+    const perCell = new Map();
+    ws.forEach(w => perCell.set(w.cell.col, (perCell.get(w.cell.col) || 0) + 1));
+    const counts = [...perCell.values()].sort((p, q) => p - q);
+    if (counts.length < 3 || counts[Math.floor(counts.length / 2)] < 3) { bandsOf.set(row, 1); continue; }
+    const heights = ws.map(w => w.y1 - w.y).sort((p, q) => p - q);
+    const gap = 0.6 * heights[Math.floor(heights.length / 2)];
+    const sorted = [...ws].sort((p, q) => (p.y + p.y1) - (q.y + q.y1));
+    let n = 0, centre = null;
+    for (const w of sorted) {
+      const mid = (w.y + w.y1) / 2;
+      if (centre !== null && mid - centre > gap) { n++; centre = mid; } else centre = centre === null ? mid : (centre + mid) / 2;
+      band.set(w, n);
+    }
+    bandsOf.set(row, n + 1);
+  }
+  const rowIndex = new Map(), rowTops = [];
+  for (const row of gridRowIds) {
+    for (let k = 0; k < (bandsOf.get(row) || 1); k++) {
+      rowIndex.set(row + ':' + k, rowTops.length);
+      const ys = (byRow.get(row) || []).filter(w => (band.get(w) || 0) === k).map(w => w.y);
+      rowTops.push(ys.length ? Math.min(...ys) : topOfRow.get(row));
+    }
+  }
+  const numRows = rowTops.length;
 
   const grid = Array.from({ length: numRows }, () =>
     Array.from({ length: numCols }, () => ({ words: [], text: '', confidence: 0 })));
   // words arrive top to bottom, so a wrapped description keeps its line order
   for (const word of pageWords) {
-    const r = rowAt.get(word.cell.row), c = colAt.get(word.cell.col);
+    const r = rowIndex.get(word.cell.row + ':' + (band.get(word) || 0)), c = colAt.get(word.cell.col);
     if (r !== undefined && c !== undefined) grid[r][c].words.push(word);
   }
   for (const row of grid) {
     for (const cell of row) {
       if (!cell.words.length) continue;
+      cell.words.sort((p, q) => (p.y + p.y1) - (q.y + q.y1) || p.x - q.x);
       cell.text = cell.words.map(w => w.text).join(' ').trim();
       cell.confidence = cell.words.reduce((s, w) => s + w.confidence, 0) / cell.words.length;
     }

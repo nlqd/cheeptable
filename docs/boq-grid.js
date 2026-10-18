@@ -52,6 +52,22 @@ function gridTextBands(rowInk, minGap, minH) {
 // Lines set tightly (justified text, accents touching the line above) leave no blank row between them and come out as one tall band.
 // A band much taller than a line is cut at the row with the least ink near each expected line boundary. `lineH` is a typical line
 // height on the page; `counts` is the ink per row of the cell.
+// Share of the words that sit in grid rows holding several table rows each (the median cell of the row has three or more lines). A grid
+// like that is one whose horizontal rules were mostly missed, and its rows cannot be trusted (see gridCellsToWordGrid in boq-extract.js).
+function gridUnderSegmented(words) {
+  const rows = new Map();
+  for (const w of words) {
+    const cols = rows.get(w.cell.row) || new Map();
+    cols.set(w.cell.col, (cols.get(w.cell.col) || 0) + 1);
+    rows.set(w.cell.row, cols);
+  }
+  let crowded = 0;
+  for (const cols of rows.values()) {
+    if (cols.size >= 3 && [...cols.values()].sort((a, b) => a - b)[Math.floor(cols.size / 2)] >= 3) crowded += [...cols.values()].reduce((s, n) => s + n, 0);
+  }
+  return words.length ? crowded / words.length : 0;
+}
+
 function gridSplitTall(bands, counts, lineH, ratio = 1.7, window = 0.3) {
   const out = [];
   for (const [a, b] of bands) {
@@ -241,4 +257,4 @@ async function ocrPageWithGrid(canvas, pageNum, grid) {
   return { words, lines: [], cells };
 }
 
-if (typeof module !== 'undefined') module.exports = { gridClusters, gridTextBands, gridSplitTall, gridCells, gridPickColumns, gridIsRuleFragment };
+if (typeof module !== 'undefined') module.exports = { gridClusters, gridTextBands, gridSplitTall, gridUnderSegmented, gridCells, gridPickColumns, gridIsRuleFragment };

@@ -74,17 +74,14 @@ function columnNames(count, detected, lang, boqLike) {
     return (lang === 'vi' ? 'Cột ' : 'Column ') + (i + 1);
   });
 }
-// The engine's row layout is [number, description, unit, quantity, price, total]; tell whether this table looks like it.
-const looksLikeBoq = (rows) => {
-  const data = rows.filter(r => r.type === 'data' && r.cells.length === 6);
-  return data.length >= 3 && data.filter(r => /^\d{1,4}$/.test(rcVal(r.cells[0]).trim()) && /\d/.test(rcVal(r.cells[5]))).length >= data.length * 0.5;
-};
+// Whether the table is a bill of quantities (boq-arith.js): in the page that is a global, in node it is required.
+const rcLooksLikeBoq = typeof looksLikeBoq === 'function' ? looksLikeBoq : require('./boq-arith.js').looksLikeBoq;
 
 // ── Review flags ──
 // Returns { map: Map("r:c" -> {level, reason, conf}), check: number of cells to check, maybe: number of weaker suspects }.
 function reviewFlags(rows, holds) {
   const map = new Map();
-  const boq = looksLikeBoq(rows);         // quantity x price = total only means something in a bill of quantities
+  const boq = rcLooksLikeBoq(rows);         // quantity x price = total only means something in a bill of quantities
   const add = (r, c, level, reason, conf) => { const k = r + ':' + c; const old = map.get(k); if (!old || (old.level === 'maybe' && level === 'check')) map.set(k, { level, reason, conf }); };
   rows.forEach((row, r) => {
     if (row.type !== 'data') return;
@@ -121,4 +118,4 @@ function numericColumns(rows, count, parse) {
   return out;
 }
 
-if (typeof module !== 'undefined') module.exports = { REVIEW, headerGroup, rcPlain, isHeaderRow, isNumberingRow, normalizeHeaders, columnNames, looksLikeBoq, reviewFlags, numericColumns };
+if (typeof module !== 'undefined') module.exports = { REVIEW, headerGroup, rcPlain, isHeaderRow, isNumberingRow, normalizeHeaders, columnNames, looksLikeBoq: rcLooksLikeBoq, reviewFlags, numericColumns };

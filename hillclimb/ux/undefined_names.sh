@@ -7,7 +7,7 @@ tmp=$(mktemp --directory); cd "$tmp"
 npm init -y > /dev/null; npm install --silent eslint@9 globals
 cat > eslint.config.mjs <<'CFG'
 import globals from 'globals';
-export default [{ files: ['**/*.js'], languageOptions: { sourceType: 'script', ecmaVersion: 2022, globals: { ...globals.browser, ...globals.worker, pdfjsLib: 'readonly', ort: 'readonly', cv: 'readonly', XLSX: 'readonly', ClipperLib: 'readonly', module: 'readonly' } }, rules: { 'no-undef': 'error' } }];
+export default [{ files: ['**/*.js'], languageOptions: { sourceType: 'script', ecmaVersion: 2022, globals: { ...globals.browser, ...globals.worker, pdfjsLib: 'readonly', ort: 'readonly', cv: 'readonly', XLSX: 'readonly', ClipperLib: 'readonly', module: 'readonly', require: 'readonly' } }, rules: { 'no-undef': 'error' } }];
 CFG
 cd "$root/docs"
 "$tmp/node_modules/.bin/eslint" --config "$tmp/eslint.config.mjs" --format json $(ls *.js | grep --invert-match '^opencv.js$') | python3 -c "

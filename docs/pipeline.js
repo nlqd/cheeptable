@@ -138,7 +138,7 @@ CT.runJob = async function (file) {
       CT.emit('page:status', { page: p, status: 'grid' });
       await CT.frame();
       let borderData = { cells: [], lines: { horizontal: [], vertical: [] } };
-      const grid = opencvReady ? await findGrid(canvas) : null;
+      let grid = opencvReady ? await findGrid(canvas) : null;
       if (!grid && opencvReady) {
         borderData = await detectTableBorders(canvas);
       }
@@ -158,6 +158,17 @@ CT.runJob = async function (file) {
             CT.emit('page:retry', { page: p, message: err.message });
             stopOcrPool(); poolReady = startOcrPool();
           }
+        }
+        // A grid found in something that is not a clean table (a photo with a red banner, say) is read as noise: the recogniser is
+        // unsure of nearly every cell. Real tables read at about 90, noise at 20 to 50. The page is then read as plain text.
+        const meanConf = ocrResult.words.length ? ocrResult.words.reduce((s, w) => s + w.confidence, 0) / ocrResult.words.length : 100;
+        const crowded = grid ? gridUnderSegmented(ocrResult.words) : 0;      // rules mostly missed: each grid row holds several table rows
+        if (grid && ocrResult.words.length >= 10 && (meanConf < 60 || crowded >= 0.5)) {
+          log(`  Page ${p}: the grid is not a table grid (read at confidence ${meanConf.toFixed(0)}, ${(100 * crowded).toFixed(0)}% of its rows crowded); reading the page as text`, 'warn');
+          grid = null;
+          borderData = opencvReady ? await detectTableBorders(canvas) : borderData;
+          ocrResult = await ocrPageWithOnnx(canvas, p);
+          CT.emit('page:grid', { page: p, mode: 'detector', cols: 0, rows: 0 });
         }
         if (grid) {
           log('  Page ' + p + ': ruled grid ' + (grid.xs.length - 1) + ' columns x ' + (grid.ys.length - 1) + ' rows', 'ok');
@@ -210,9 +221,11 @@ CT.runJob = async function (file) {
   if (allOcrWords.length > 0) {
     log('OCR total: ' + allOcrWords.length + ' words across ' + ocrPageCount + ' pages', 'ok');
     const read = await ocrTableExtract(allOcrLines, allOcrWords, allBorderCells);
-    const seq = repairNumbering(read).fixed;
+    // row numbers that count up and quantity x price = total only hold in a bill of quantities; on any other table they would rewrite true values
+    const boq = looksLikeBoq(read);
+    const seq = boq ? repairNumbering(read).fixed : 0;
     if (seq > 0) log('Fixed ' + seq + ' misread row numbers (they count up by one)', 'ok');
-    const { fixed } = repairArithmetic(read);
+    const fixed = boq ? repairArithmetic(read).fixed : 0;
     if (fixed > 0) log('Fixed misread numbers in ' + fixed + ' rows (qty x price = total)', 'ok');
     CT.emit('build:fixes', { numbering: seq, arithmetic: fixed });
     parts.push(read);
