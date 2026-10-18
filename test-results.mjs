@@ -7,8 +7,8 @@ const core = require('./docs/results-core.js');
 const { arithHolds } = require('./docs/boq-arith.js');
 const { isHeaderRow, isNumberingRow, normalizeHeaders, columnNames, looksLikeBoq, reviewFlags, numericColumns } = core;
 
-const cell = (value, confidence = 93) => ({ value, confidence });
-const row = (vals, type = 'data', conf) => ({ type, cells: vals.map((v, i) => cell(v, Array.isArray(conf) ? conf[i] : (conf ?? 93))) });
+const cell = (value, confidence = 97) => ({ value, confidence });
+const row = (vals, type = 'data', conf) => ({ type, cells: vals.map((v, i) => cell(v, Array.isArray(conf) ? conf[i] : (conf ?? 97))) });
 
 const tests = {
   'quantity x price = total is only checked in a bill of quantities'() {
@@ -62,15 +62,15 @@ const tests = {
     assert.equal(looksLikeBoq(rows), true);
     assert.equal(looksLikeBoq([row(['Tài sản', '100', '200'])]), false);
   },
-  'a description under 90 is a check, 90 to 92 only a maybe'() {
-    const r = reviewFlags([row(['1', 'chữ', 'm', '1', '2', '2'], 'data', [93, 89, 93, 93, 93, 93]), row(['2', 'chữ hai', 'm', '1', '2', '2'], 'data', [93, 91, 93, 93, 93, 93])], arithHolds);
+  'a description under 93 is a check, 93 to 95 only a maybe'() {
+    const r = reviewFlags([row(['1', 'chữ', 'm', '1', '2', '2'], 'data', [97, 92, 97, 97, 97, 97]), row(['2', 'chữ hai', 'm', '1', '2', '2'], 'data', [97, 94, 97, 97, 97, 97])], arithHolds);
     assert.equal(r.map.get('0:1').level, 'check');
     assert.equal(r.map.get('1:1').level, 'maybe');
     assert.equal(r.check, 1);
     assert.equal(r.maybe, 1);
   },
   'a low-confidence number is a check'() {
-    const r = reviewFlags([row(['1', 'chữ', 'm', '1', '2', '2'], 'data', [93, 93, 93, 75, 93, 93])], arithHolds);
+    const r = reviewFlags([row(['1', 'chữ', 'm', '1', '2', '2'], 'data', [97, 97, 97, 75, 97, 97])], arithHolds);
     assert.equal(r.map.get('0:3').reason, 'lowNum');
   },
   'a row that breaks quantity x price = total flags its three numbers'() {
@@ -84,7 +84,7 @@ const tests = {
     assert.equal(r.map.size, 0);
   },
   'a reviewed cell is never flagged again'() {
-    const rows = [row(['1', 'chữ', 'm', '1', '2', '2'], 'data', [93, 80, 93, 93, 93, 93])];
+    const rows = [row(['1', 'chữ', 'm', '1', '2', '2'], 'data', [97, 85, 97, 97, 97, 97])];
     rows[0].cells[1].reviewed = true;
     assert.equal(reviewFlags(rows, arithHolds).map.size, 0);
   },

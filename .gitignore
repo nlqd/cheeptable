@@ -95,3 +95,6 @@ benchmark/.venv/
 # model binaries and a vendored library kept locally, never committed (they were pushed once by mistake)
 hillclimb/models_out/
 hillclimb/vendor/
+benchmark/raw3/
+benchmark/manifest3_*.json
+benchmark/raw2/

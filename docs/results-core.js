@@ -1,11 +1,11 @@
 // results-core.js — pure logic behind the results table: header detection, review flags, column types. No DOM, so it is unit-tested in Node.
 'use strict';
 
-// Review thresholds come from measurement on the 473-row contract (the recogniser's confidence is bunched between 88 and 95;
-// hillclimb/size/flags_calib.py reruns this for a new model):
-//   description confidence < 91: 16.5% of cells, 96% of them really wrong; 91-93 adds 23.5% of cells at 87% precision overall
-//   number confidence < 80: about half really wrong; quantity x price != total: every flagged row really wrong in the earlier measurement
-const REVIEW = { textCheck: 91, textMaybe: 93, numCheck: 80 };
+// Review thresholds come from measurement on the 473-row contract (hillclimb/size/flags_calib.py reruns it for a new model; the
+// recogniser's confidence is bunched between 90 and 98):
+//   description confidence < 93: 17% of cells, 97% of them really wrong; 93-95.5 adds 21% of cells at 88% precision overall
+//   number confidence < 85: few cells; most wrong numbers are confident, so quantity x price = total (bills of quantities) does the work
+const REVIEW = { textCheck: 93, textMaybe: 95.5, numCheck: 85 };
 
 const rcPlain = (s) => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/đ/g, 'd').replace(/Đ/g, 'D').toLowerCase().replace(/\s+/g, ' ').trim();
 const rcVal = (c) => (c && typeof c === 'object') ? String(c.value ?? '') : String(c ?? '');

@@ -26,8 +26,9 @@ out.mkdir(exist_ok=True)
 a = sys.argv
 n_real = int(a[a.index("--real") + 1]) if "--real" in a else 25000
 n_synth = int(a[a.index("--synth") + 1]) if "--synth" in a else 40000
-rng = random.Random(1)
-nrng = np.random.default_rng(1)
+seed = int(a[a.index("--seed") + 1]) if "--seed" in a else 1
+rng = random.Random(seed)
+nrng = np.random.default_rng(seed)
 
 # ---- what the evaluation set uses (same sampling as variant_bench.build_crops) ----
 eval_pages, eval_refs = set(), set()
@@ -63,7 +64,7 @@ def degrade_random(img):
 
 # ---- real lines ----
 real, corpus = [], []
-D.seed(1)
+D.seed(seed)
 for e in docs:
     pdf = pdfium.PdfDocument(e["local_path"])
     for p in range(len(pdf)):
@@ -98,15 +99,15 @@ words = [w for t in corpus for w in t.split()]
 
 def number():
     kind = rng.random()
-    if kind < 0.45:
+    if kind < 0.55:                                            # whole numbers with dots between thousands, the usual price or total
         v = rng.randint(1, 10 ** rng.randint(2, 10))
         s = f"{v:,}".replace(",", ".")
-    elif kind < 0.75:
-        s = f"{rng.randint(0, 99999):,}".replace(",", ".") + "," + str(rng.randint(0, 999)).zfill(rng.randint(1, 3))
-    elif kind < 0.9:
+    elif kind < 0.80:                                          # a decimal comma with one or two digits, thousands with dots
+        s = f"{rng.randint(0, 99999):,}".replace(",", ".") + "," + str(rng.randint(0, 99)).zfill(rng.randint(1, 2))
+    elif kind < 0.97:
         s = str(rng.randint(1, 400))
-    else:
-        s = f"{rng.randint(1, 99)}.{rng.randint(1, 99)}"
+    else:                                                      # three decimal digits are rare in real tables
+        s = f"{rng.randint(0, 99):,}".replace(",", ".") + "," + str(rng.randint(0, 999)).zfill(3)
     return s
 
 

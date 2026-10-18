@@ -65,6 +65,18 @@ const CTWire = (() => {
     return sign * (1 + m / 1024) * Math.pow(2, e - 15);
   }
 
+  // The sinusoidal positional table of the transformer (torch's PositionalEncoding), written as float32.
+  function positional(e, blob) {
+    const out = new Float32Array(blob.buffer, e.dst, e.rows * e.d);
+    for (let p = 0; p < e.rows; p++) {
+      for (let i = 0; i < e.d; i += 2) {
+        const a = p * Math.exp(i * (-Math.log(10000) / e.d));
+        out[p * e.d + i] = Math.sin(a);
+        out[p * e.d + i + 1] = Math.cos(a);
+      }
+    }
+  }
+
   // Rebuild a convolution weight as int8 with one step per output channel (what the quantised encoder graph holds) from the
   // group codes and steps already decoded into the shared blob. Row step = largest weight / 127.
   function requant(e, srcBlob, blob) {
@@ -109,6 +121,8 @@ const CTWire = (() => {
       const blob = blobs[e.graph];
       if (e.kind === 'codes') {
         decode(payload, e.off, e.n, e.freq, 1 << (e.bits - 1), new Int8Array(blob.buffer), e.dst);
+      } else if (e.kind === 'pe') {
+        positional(e, blob);
       } else if (e.kind === 'requant') {
         requant(e, blobs[e.src], blob);
       } else {                                           // fp16 values stored raw, written as float32

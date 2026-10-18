@@ -10,7 +10,7 @@ let off = 0;
 for (const e of pre.entries) {
   const [po, pl] = e.pre || [0, 0];
   let bytes, rec = { graph: e.graph, kind: e.kind, dst: e.dst, n: e.n, off };
-  if (e.kind === 'requant') { bytes = Buffer.alloc(0); rec = { ...e, off, len: 0 }; delete rec.pre; }
+  if (e.kind === 'requant' || e.kind === 'pe') { bytes = Buffer.alloc(0); rec = { ...e, off, len: 0 }; delete rec.pre; }
   else if (e.kind === 'codes') {
     const shift = 1 << (e.bits - 1);
     const sym = new Uint8Array(e.n);

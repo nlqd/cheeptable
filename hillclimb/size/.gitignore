@@ -21,3 +21,4 @@ ab_pages/
 ab_pages_results.json
 bench2_reads.json
 *.png
+bench2_crops.pkl

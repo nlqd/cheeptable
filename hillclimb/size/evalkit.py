@@ -140,3 +140,18 @@ def metrics_from_texts(texts, tag="model"):
         pickle.dump(reads, open(tp, "wb"))
         res["agree_err"] = 0.0
     return res, reads
+
+
+def bench2(model, vocab):
+    """Character error on the 4,434 lines of the 35 born-digital documents of benchmark/manifest2.json (held out of training).
+    Some answer keys are garbled legacy-font text layers, so the absolute value is high; compare models, not against zero."""
+    crops = pickle.load(open(HERE / "bench2_crops.pkl", "rb"))
+    if "b2" not in _cache:
+        _cache["b2"] = [tensor_for(c["crop"]) for c in crops]
+    reads = read_all(model.to(DEV).eval(), vocab, _cache["b2"])
+    out = {"all": [0, 0], "clean": [0, 0], "rough": [0, 0]}
+    for c, r in zip(crops, reads):
+        ref = norm(c["ref"]); err = lev(ref, r)
+        for k in ("all", c["cond"]):
+            out[k][0] += err; out[k][1] += len(ref)
+    return {k: round(a / b, 4) for k, (a, b) in out.items()}

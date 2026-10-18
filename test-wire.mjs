@@ -84,6 +84,14 @@ const tests = {
       }
     }
   },
+  'a positional table is rebuilt from its formula'() {
+    const head = { graphs: { enc: 64 }, ext: { enc: ['enc'] }, entries: [{ graph: 'enc', kind: 'pe', dst: 0, rows: 3, d: 4, off: 0, len: 0 }] };
+    const h = new TextEncoder().encode(JSON.stringify(head));
+    const buf = new Uint8Array(4 + h.length); new DataView(buf.buffer).setUint32(0, h.length, true); buf.set(h, 4);
+    const pe = new Float32Array(W.unpack(buf.buffer).blobs.enc.buffer, 0, 12);
+    const want = [0, 1, 0, 1, Math.sin(1), Math.cos(1), Math.sin(0.01), Math.cos(0.01), Math.sin(2), Math.cos(2), Math.sin(0.02), Math.cos(0.02)];
+    want.forEach((v, i) => assert.ok(Math.abs(pe[i] - v) < 1e-6, `item ${i}: ${pe[i]} against ${v}`));
+  },
   'asking for the float encoder alone leaves the int8 one unbuilt'() {
     const { blobs, ext } = W.unpack(container().buffer, ['enc']);
     assert.deepEqual(Object.keys(blobs), ['enc']);

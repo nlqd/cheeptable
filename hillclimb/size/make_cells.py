@@ -27,13 +27,15 @@ corpus = [t for t in pickle.load(open("size/corpus.pkl", "rb"))]
 
 def number():
     k = rng.random()
-    if k < 0.35:
+    if k < 0.2:
         return str(rng.randint(0, 99))
-    if k < 0.6:
+    if k < 0.65:
         return f"{rng.randint(1, 10 ** rng.randint(3, 10)):,}".replace(",", ".")
-    if k < 0.8:
-        return f"{rng.randint(0, 9999):,}".replace(",", ".") + "," + str(rng.randint(0, 999)).zfill(rng.randint(1, 3))
-    return str(rng.randint(100, 9999))
+    if k < 0.90:
+        return f"{rng.randint(0, 9999):,}".replace(",", ".") + "," + str(rng.randint(0, 99)).zfill(rng.randint(1, 2))
+    if k < 0.97:
+        return str(rng.randint(100, 9999))
+    return f"{rng.randint(0, 99):,}".replace(",", ".") + "," + str(rng.randint(0, 999)).zfill(3)
 
 
 def text_and_align():

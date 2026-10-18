@@ -21,6 +21,8 @@ out = Path(a[2])
 out.mkdir(parents=True, exist_ok=True)
 model, _ = E.load_teacher()
 kd.prune(model, opt("--ffn", 2048), opt("--enc", 6), opt("--dec", 6))
+if opt("--cw", 512) < 512:
+    kd.prune_cnn(model, opt("--cw", 512), [])
 model.load_state_dict(torch.load(a[1], map_location="cpu", weights_only=True))
 model = model.eval()
 for p in model.parameters():

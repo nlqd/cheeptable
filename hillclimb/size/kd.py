@@ -9,6 +9,7 @@ PLAN.json: {"cnn_a": [bits, group], ...} (group names from quant.py); a missing 
 import copy
 import json
 import math
+import re
 import pickle
 import random
 import sys
@@ -117,15 +118,28 @@ def materialise(model, plan):
 
 # ---------- data ----------
 class Lines(torch.utils.data.Dataset):
-    def __init__(self, d):
+    def __init__(self, dirs, vocab=None, truth=False, numbers_from_teacher=False):
         self.items = []
-        labels = pickle.load(open(d / "labels.pkl", "rb"))
-        for shard in sorted(d.glob("shard*.pkl")):
-            for i, it in enumerate(pickle.load(open(shard, "rb"))):
-                g = cv2.copyMakeBorder(E.tight(it["crop"]), 0, 0, 10, 10, cv2.BORDER_CONSTANT, value=255)
-                lab = labels.get((shard.name, i))
-                if lab and 3 <= len(lab) <= 120:
-                    self.items.append((g, lab))
+        for spec in dirs:
+            d, _, only = str(spec).partition('@')              # 'train@real+short': only those sources of that folder
+            d = Path(d); only = set(only.split('+')) if only else None
+            lp = d / "labels.pkl"
+            labels = pickle.load(open(lp, "rb")) if lp.exists() else {}
+            for shard in sorted(d.glob("shard*.pkl")):
+                for i, it in enumerate(pickle.load(open(shard, "rb"))):
+                    if only and it.get("src") not in only:
+                        continue
+                    g = cv2.copyMakeBorder(E.tight(it["crop"]), 0, 0, 10, 10, cv2.BORDER_CONSTANT, value=255)
+                    lab = labels.get((shard.name, i))
+                    if truth:                                   # what the picture really says, not what the teacher read
+                        ref = E.norm(it["ref"])
+                        numeric = re.fullmatch(r"[\d.,\s()\-/%]+", ref or "") is not None
+                        if numeric and lab and numbers_from_teacher:   # the teacher's reading of numbers (dot or comma) is what the pages need
+                            pass
+                        else:
+                            lab = [1] + [vocab.c2i[c] for c in ref] + [2] if ref and all(c in vocab.c2i for c in ref) else None
+                    if lab and 3 <= len(lab) <= 120:
+                        self.items.append((g, lab))
         c = E.cfg()["dataset"]
         self.widths = []
         for g, _ in self.items:
@@ -237,6 +251,7 @@ def main():
     plan = json.load(open(a[a.index("--plan") + 1])) if "--plan" in a else {}
     lam_mem = opt("--mem", 0.5)
     lam = opt("--lam", 0.0)
+    w_ce, w_kl = opt("--ce", 0.3), opt("--kl", 1.0)
 
     teacher, vocab = E.load_teacher()
     teacher = teacher.to(E.DEV).eval()
@@ -257,7 +272,8 @@ def main():
         if isinstance(m, nn.BatchNorm2d):
             m.eval()
     n_quant = sum(m.parametrizations[n].original.numel() for m in student.modules() if P.is_parametrized(m) for n in m.parametrizations.keys())
-    ds = Lines(HERE / "train")
+    truth = opt("--truth", 0) == 1
+    ds = Lines(([str(HERE / d.split("@")[0]) + ("@" + d.split("@")[1] if "@" in d else "") for d in opt("--data", "train").split(",")]), vocab, truth, opt("--numbers-teacher", 0) == 1)
     print("train lines", len(ds), "student params", sum(p.numel() for n, p in student.named_parameters() if "log_s" not in n and "original" not in n) / 1e6, flush=True)
     scales = [p for n, p in student.named_parameters() if "log_s" in n]
     rest = [p for n, p in student.named_parameters() if "log_s" not in n]
@@ -280,7 +296,7 @@ def main():
             kl = (kl * valid).sum() / valid.sum()
             ce = (F.cross_entropy(s_logits.float().transpose(1, 2), y[:, 1:], reduction="none") * valid).sum() / valid.sum()
             mem = F.mse_loss(s_mem.float(), t_mem.float()) / t_mem.float().pow(2).mean().clamp_min(1e-6)
-            loss = kl + 0.3 * ce + lam_mem * mem
+            loss = w_kl * kl + w_ce * ce + lam_mem * mem
             if lam > 0:
                 loss = loss + lam * total_rate(student) / n_quant
             optim.zero_grad(set_to_none=True)
@@ -296,6 +312,7 @@ def main():
     plain, rep = materialise(student, plan)
     total = sum(p.numel() for p in plain.parameters())
     res, _ = E.evaluate(plain, vocab, name)
+    res["bench2"] = E.bench2(plain, vocab)
     res["size_mb"] = round(Q.size_mb(rep, total), 2)
     by = {}
     for n, (cnt, b, sc) in rep.items():
@@ -305,7 +322,7 @@ def main():
     res["by_group_mb"] = {g: [round(c / 1e6, 2), round(by_b / 1e6, 2), round(by_b * 8 / c, 2)] for g, (c, by_b, _) in by.items()}
     res["unquantised_mb"] = round((total - sum(c for c, _, _ in rep.values())) * 2 / 1e6, 2)
     res["params_m"] = round(total / 1e6, 2)
-    res["args"] = {"cw": cw, "cdrop": cdrop, "steps": steps, "lam": lam, "lr": lr, "ffn": ffn, "enc": enc, "dec": dec, "plan": plan}
+    res["args"] = {"truth": truth, "ce": w_ce, "kl": w_kl, "cw": cw, "cdrop": cdrop, "steps": steps, "lam": lam, "lr": lr, "ffn": ffn, "enc": enc, "dec": dec, "plan": plan}
     print(json.dumps(res), flush=True)
     json.dump(res, open(HERE / "runs" / f"{name}.json", "w"))
     torch.save(plain.state_dict(), HERE / "runs" / f"{name}.pt")

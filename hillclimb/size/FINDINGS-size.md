@@ -1,4 +1,4 @@
-# Shrinking the recogniser: 40.7 MB to 8.6 MB (2026-10-17)
+# Shrinking the recogniser: 40.7 MB to 8.6 MB (2026-10-17), then to 4.8 MB (2026-10-18)
 
 Goal from the user: the models must not be larger than 15 MB (40 MB takes too long to download), with little loss of accuracy.
 Result: a distilled, quantised VietOCR of 8.6 MB (all three graphs, one entropy-coded file) that matches the 40.7 MB production models on the 473-row contract, in the browser, on both the CPU and the WebGPU path.
@@ -67,6 +67,29 @@ The same model with float convolutions on CPU took 156 s; the int8 convolutions 
 ## Review flags
 
 The student is more confident (median description confidence 93.5 against 92.5), so the old cutoffs flagged fewer cells. Recalibrated on the contract (`flags_calib.py`) to flag as many cells as before: check below 91 (16.5% of cells, 96% really wrong), maybe below 93 (40%, 87%). Numbers: cutoff 80 kept.
+
+## Second climb (2026-10-18): true labels, more data, narrower CNN: 4.8 MB, better than the original
+
+The first student copied the teacher's reading of the pictures, so it could not beat it. Every training line also has the text it was made from (the PDF text layer, or the rendered string), so the students below learn from that, with the teacher's output distribution as a second, weaker signal. Held-out score added to every run: `bench2` = character error on 4,434 lines of 35 documents of the 52-document corpus (some keys are garbled legacy fonts, so only compare models). Original: contract description error 0.0301, bench2 0.1137.
+
+| run | change | size | contract CER | bench2 | numbers (cells) |
+|---|---|---|---|---|---|
+| x2 | first climb: teacher labels | 8.2 MB | 0.0305 | 0.1161 | 0.966 |
+| y1 | true labels (CE 1.0, KL 0.5) | 8.2 | 0.0301 | 0.1072 | 0.985 |
+| y4 | + 64k more real lines, 12k steps | 8.1 | 0.0289 | 0.1039 | 0.985 |
+| y5 | + 2-bit attention | 7.5 | 0.0299 | 0.1028 | 0.985 |
+| y6 | + CNN 512 to 384 channels | 5.8 | 0.0302 | 0.1037 | 0.985 |
+| y9 | CNN 320 channels | 5.1 | 0.0293 | 0.1105 | 0.985 |
+| y13 | CNN 320, 20k steps | 5.0 | 0.0290 | 0.1049 | 0.985 |
+| y10 | CNN 256 channels | 4.4 | 0.0363 | 0.1125 | 0.985 |
+| y14 | y13 + coarser steps (group 128) + stronger rate term | 4.5 | 0.0302 | 0.1053 | 0.985 |
+| **y16** | **y14 + new numeric data, teacher's reading kept on numeric lines** | **4.55** | **0.0295** | **0.1072** | 0.981 |
+
+Dropped: FFN 768 (CER 0.0325), CNN 256 channels (0.0363), more teacher weight (y17), the wider CNN (y18, 5.5 MB for no gain).
+
+A trap the cell-level metric missed: the true-label students scored 0.985 on numbers in my cell crops, but in the browser (line boxes cut by the grid reader) the contract numbers fell to 0.93-0.95: they wrote "3.976,875" for "3.976.875" and dropped trailing groups. Cause: synthetic numbers with a decimal comma and three digits, and truth labels for dot-or-comma where the teacher was sure. Fix: realistic number formats and the teacher's reading kept on purely numeric lines (y16). Always judge a candidate in the browser on the contract, not on the cell set alone.
+
+y16 in the browser (contract, 473 rows): CPU 71 s, WebGPU 58 s (original 95/57); numbers 0.966 (0.977 for the first student, 0.968 for the original); description error 0.020 (0.021); exact descriptions 0.482 (0.436). On the 52 documents in the app against the original run with the same page code: 39 documents identical, the other 13 equal on average when scored against their own OCR text layer (word F1 0.420 against 0.420). Review cutoffs recalibrated: description check below 93 and maybe below 95.5 (the model is more confident). Package: `vietocr/cheep-v2/` (model.bin 4.78 MB plus 0.33 MB of graphs); the positional tables are now a formula in the page.
 
 ## A second, larger check: 52 public documents (`benchmark/manifest2.json`, held out of all training)
 

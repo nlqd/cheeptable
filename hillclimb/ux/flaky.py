@@ -8,7 +8,7 @@ a = sys.argv
 url, pdf = a[1], a[2]
 port = a[a.index("--port") + 1] if "--port" in a else "9333"
 BASE = "http://localhost:8080"
-HOSTED = str(__import__("pathlib").Path(__file__).resolve().parent.parent / "size" / "hosted" / "vietocr" / "cheep-v1") + "/"      # see size/FINDINGS-size.md for how the package is staged
+HOSTED = str(__import__("pathlib").Path(__file__).resolve().parent.parent / "size" / "hosted" / "vietocr" / "cheep-v2") + "/"      # see size/FINDINGS-size.md for how the package is staged
 FILES = ["model.bin", "enc.skel.onnx", "encq.skel.onnx", "init.skel.onnx", "step.skel.onnx"]    # the files a CPU visit fetches
 
 
@@ -34,7 +34,7 @@ def fresh(keep_cache=False):
     rodney("open", url); rodney("waitload"); time.sleep(0.8)
     js("(window.alert = () => {}, window.__retries = 0, CT.on('model:retry', () => window.__retries++), 1)")
     # the engine loads on demand, so its settings exist only after it has loaded; then point the CPU-path models at the flaky route
-    js("(window.__ready = false, CT.preloadEngine().then(() => { ONNX_MODELS.compact = '%s/flaky/hillclimb/size/hosted/vietocr/cheep-v1'; window.__ready = true; }), 1)" % BASE)
+    js("(window.__ready = false, CT.preloadEngine().then(() => { ONNX_MODELS.compact = '%s/flaky/hillclimb/size/hosted/vietocr/cheep-v2'; window.__ready = true; }), 1)" % BASE)
     for _ in range(60):
         if js("window.__ready") == "true":
             break
@@ -55,8 +55,8 @@ sizes = {f: len(open(HOSTED + f, "rb").read()) for f in FILES}
 total = sum(sizes.values())
 ok_all = []
 
-print("Part 1: the first two requests per file stop after 3 MB")
-ctl(reset=1, cut=3000000, times=2)
+print("Part 1: the first two requests per file stop after 1.5 MB")
+ctl(reset=1, cut=1500000, times=2)
 fresh()
 rodney("file", "#fileInput", pdf)
 done = wait("!!(CT.state && CT.state.done) && !document.getElementById('stage-result').hidden", 180)
@@ -66,8 +66,8 @@ retries = js("window.__retries")
 print("  finished by itself: %s | retry events: %s | bytes served %.1f MB for %.1f MB of models (%.0f%% overhead)" % (done, retries, sent / 1e6, total / 1e6, 100 * (sent - total) / total))
 ok_all += [done, int(retries or 0) >= 2, sent < total * 1.35]
 
-print("Part 2: the network is down (every request stops after 1 MB)")
-ctl(reset=1, cut=1000000, times=999)
+print("Part 2: the network is down (every request stops after 250 KB)")
+ctl(reset=1, cut=250000, times=999)
 fresh()
 rodney("file", "#fileInput", pdf)
 failed = wait("!!document.querySelector('.endmsg button') && !document.querySelector('.endmsg').hidden && document.body.dataset.stage === 'progress'", 150)
@@ -109,5 +109,5 @@ done = wait("!!(CT.state && CT.state.done) && !document.getElementById('stage-re
 sent = ctl()["sent"]
 mb = sum(v for k, v in sent.items() if k.endswith("model.bin")) / 1e6
 print("  job finished with the damaged copy in the cache: %s | model.bin fetched again: %.1f MB (the other four files came from the cache)" % (done, mb))
-ok_all += [done, mb > 8, sum(v for k, v in sent.items() if not k.endswith("model.bin")) < 1]
+ok_all += [done, mb > 4, sum(v for k, v in sent.items() if not k.endswith("model.bin")) < 1]
 print("%d of %d checks passed" % (sum(bool(x) for x in ok_all), len(ok_all)))
