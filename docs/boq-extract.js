@@ -819,6 +819,7 @@ async function assignToColumns(parts) {
 
 // ── Spatial extraction fallback (for cleaner OCR without pipe borders) ──
 async function spatialExtract(filteredLines, filteredWords) {
+  if (!filteredWords.length) return [];
   var colBoundaries = detectColumns(filteredWords, filteredLines);
   var numCols = colBoundaries.length - 1;
   log('  Column detection: ' + numCols + ' columns (spatial)');
