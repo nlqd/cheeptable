@@ -22,3 +22,6 @@ ab_pages_results.json
 bench2_reads.json
 *.png
 bench2_crops.pkl
+hosted_teacher2/
+ab3/
+ab3*_lane*.jsonl
