@@ -670,8 +670,33 @@ async function _recognizeBoxes(canvas, boxes, onRead) {
   return out;
 }
 
+// A crop turned a quarter turn, as its own canvas: column headings written upwards (or downwards) are read as a normal line.
+function _quarterTurn(canvas, box, clockwise) {
+  const w = box.x1 - box.x0, h = box.y1 - box.y0;
+  const turned = document.createElement('canvas');
+  turned.width = h; turned.height = w;
+  const ctx = turned.getContext('2d');
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(0, 0, h, w);
+  ctx.translate(h / 2, w / 2);
+  ctx.rotate(clockwise ? Math.PI / 2 : -Math.PI / 2);
+  ctx.drawImage(canvas, box.x0, box.y0, w, h, -w / 2, -h / 2, w, h);
+  return turned;
+}
+
+// Sideways text has no tell for which way it runs, so it is read as it stands and turned both ways, and the reading the
+// recogniser is surest of is kept.
 async function _recognizeBox(canvas, box) {
-  const imgTensor = _preprocessVietOCR(canvas, box.x0, box.y0, box.x1, box.y1);
+  const upright = await _recognizeCrop(canvas, box.x0, box.y0, box.x1, box.y1);
+  if (!gridIsSideways(box.x1 - box.x0, box.y1 - box.y0)) return upright;
+  const turns = [true, false].map(clockwise => _quarterTurn(canvas, box, clockwise));
+  const reads = [upright];
+  for (const t of turns) reads.push(await _recognizeCrop(t, 0, 0, t.width, t.height));
+  return reads.reduce((best, r) => (r.confidence > best.confidence ? r : best));
+}
+
+async function _recognizeCrop(canvas, x0, y0, x1, y1) {
+  const imgTensor = _preprocessVietOCR(canvas, x0, y0, x1, y1);
   if (!imgTensor) return { text: '', confidence: 0 };
 
   if (_encoderOnGpu) {

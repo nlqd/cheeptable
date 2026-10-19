@@ -118,6 +118,52 @@ function gridJointCount(ver, w, h, xs, y, reach) {
   return n;
 }
 
+// How many pixel rows below the grid's last row rule still carry two or more of its column rules. A table whose row separators are
+// dotted or faint is found as just its header: the body below has column rules but no row rules, and is not part of the grid.
+function gridRulesBelow(ver, w, h, xs, y, reach) {
+  let n = 0;
+  for (let yy = y + reach + 1; yy < h; yy++) {
+    let hits = 0;
+    for (const x of xs) {
+      for (let xx = Math.max(0, x - reach); xx <= Math.min(w - 1, x + reach); xx++) if (ver[yy * w + xx]) { hits++; break; }
+    }
+    if (hits >= 2) n++;
+  }
+  return n;
+}
+
+// A box at least twice as tall as wide and tall enough to be a line of text turned on its side (a column heading written upwards).
+function gridIsSideways(w, h) {
+  return h >= 2 * w && h >= 24;
+}
+
+// A low estimate of the height of one line in a column, from the heights of its bands: the lower quartile, which merged strips
+// (tight lines whose accents touch, read as one band) cannot inflate. It only says which bands are worth measuring; whether a band is
+// several lines, and at what pitch, is decided by gridLinePitch.
+function gridLineHeight(cellBands) {
+  const all = cellBands.flat().sort((p, q) => p - q);
+  return all[Math.floor(0.25 * (all.length - 1))] || 0;
+}
+
+// The pitch of the lines in a band of ink rows, or 0 when it does not repeat. Lines of text show the same ink profile again one pitch
+// further down (the profile of a row of letters, then the gap, then the same); one tall line does not. The profile is compared
+// with itself shifted by each lag from `minLag` on, and the first lag at which the two agree is the pitch.
+function gridLinePitch(counts, a, b, minLag, agree = 0.5) {
+  const n = b - a;
+  const mean = counts.slice(a, b).reduce((s, c) => s + c, 0) / Math.max(n, 1);
+  const p = Array.from({ length: n }, (_, i) => counts[a + i] - mean);
+  const agreement = (lag) => {
+    let dot = 0, x = 0, y = 0;
+    for (let i = 0; i + lag < n; i++) { dot += p[i] * p[i + lag]; x += p[i] * p[i]; y += p[i + lag] * p[i + lag]; }
+    return x > 0 && y > 0 ? dot / Math.sqrt(x * y) : 0;
+  };
+  for (let lag = Math.max(2, Math.round(minLag)); n - lag >= 0.4 * lag; lag++) {
+    const r = agreement(lag);
+    if (r >= agree && r >= agreement(lag - 1) && r >= agreement(lag + 1)) return lag;
+  }
+  return 0;
+}
+
 // Lines set tightly (justified text, accents touching the line above) leave no blank row between them and come out as one tall band.
 // A band much taller than a line is cut at the row with the least ink near each expected line boundary. `lineH` is a typical line
 // height on the page; `counts` is the ink per row of the cell.
@@ -142,13 +188,16 @@ function gridSplitTall(bands, counts, lineH, ratio = 1.7, window = 0.3) {
   for (const [a, b] of bands) {
     const h = b - a;
     if (!(lineH > 0) || h < ratio * lineH) { out.push([a, b]); continue; }
-    const n = Math.max(2, Math.round(h / lineH));
+    // the band is cut only if its ink repeats at a steady pitch, which is the pitch of its lines; one tall line does not repeat
+    const pitch = gridLinePitch(counts, a, b, 0.8 * lineH);
+    if (!pitch) { out.push([a, b]); continue; }
+    const n = Math.max(2, Math.round(h / pitch));
     let from = a;
     const cuts = [];
     for (let k = 1; k < n; k++) {
       const target = a + k * h / n;
       let best = -1;
-      for (let r = Math.max(a + 2, Math.floor(target - window * lineH)); r <= Math.min(b - 2, Math.ceil(target + window * lineH)); r++) {
+      for (let r = Math.max(a + 2, Math.floor(target - window * pitch)); r <= Math.min(b - 2, Math.ceil(target + window * pitch)); r++) {
         if (best < 0 || counts[r] < counts[best] || (counts[r] === counts[best] && Math.abs(r - target) < Math.abs(best - target))) best = r;
       }
       if (best >= 0) cuts.push(best);
@@ -181,7 +230,7 @@ function gridCells(xs, ys, f) {
   const cells = [];
   for (let r = 0; r < ys.length - 1; r++) {
     const y0 = ys[r] + inL, y1 = ys[r + 1] - inR;
-    if (y1 - y0 < 12 * f) continue;
+    if (y1 - y0 < GRID_BAND_MIN_H * f) continue;     // shorter than the shortest ink run that counts as a line of text
     for (let c = 0; c < xs.length - 1; c++) {
       const x0 = xs[c] + inL, x1 = xs[c + 1] - inR;
       if (x1 - x0 < 8 * f) continue;
@@ -228,7 +277,9 @@ async function findGrid(canvas) {
     for (let y = 0; y < h; y++) if (rowSum.data32S[y] > 255 * w * 0.25) yHits.push(y);
     const xsSrc = gridPickColumns(Array.from(colSum.data32S.subarray(0, w)), f);
     const reach = Math.max(2, Math.round(3 * f));
-    const ys = gridClusters(yHits, 4 * f).filter(y => gridJointCount(ver.data, w, h, xsSrc, y, reach) >= 2).map(y => Math.round(y / k));
+    const ysSrc = gridClusters(yHits, 4 * f).filter(y => gridJointCount(ver.data, w, h, xsSrc, y, reach) >= 2);
+    if (ysSrc.length && gridRulesBelow(ver.data, w, h, xsSrc, ysSrc[ysSrc.length - 1], reach) >= 0.1 * h) return null;   // the table goes on below its last row rule
+    const ys = ysSrc.map(y => Math.round(y / k));
     const xs = xsSrc.map(x => Math.round(x / k));
     // a few boxes on a page of text are not a table: the extractor wants at least 20 cells, so a smaller grid is not used
     return xs.length >= 3 && ys.length >= 3 && (xs.length - 1) * (ys.length - 1) >= 20 ? { xs, ys, f: full } : null;
@@ -305,23 +356,22 @@ async function ocrPageWithGrid(canvas, pageNum, grid, withHeading = true) {
   }
   const cropOf = (c) => (c.heading ? { ...c, x: c.heading.x, width: c.heading.width } : c);
 
-  // A typical text line in each column (a description column has taller letters than a column of numbers): the 70th percentile of
-  // the band heights, so a few merged lines do not inflate it.
+  // A typical text line in each column (a description column has taller letters than a column of numbers).
   const scans = [];
   const byCol = new Map();
   for (let i = 0; i < cells.length; i++) {
     const sc = _cellBands(ctx, cropOf(cells[i]), grid.f);
     scans.push(sc);
-    const list = byCol.get(cells[i].col) || [];
-    if (!cells[i].heading) sc.bands.forEach(([a, b]) => list.push(b - a));
-    byCol.set(cells[i].col, list);
+    if (!cells[i].heading) byCol.set(cells[i].col, [...(byCol.get(cells[i].col) || []), sc.bands.map(([a, b]) => b - a)]);
     if (i % 20 === 0) await yieldToMain();
   }
-  const lineH = new Map([...byCol].map(([col, hs]) => [col, hs.sort((p, q) => p - q)[Math.floor(0.7 * (hs.length - 1))] || 0]));
+  const lineH = new Map([...byCol].map(([col, bands]) => [col, gridLineHeight(bands)]));
+  // the heading is not in a column: it is set in a larger face than a column of figures, so it takes the tallest line of any column
+  const headingLineH = Math.max(0, ...lineH.values());
 
   const items = [];
   for (let i = 0; i < cells.length; i++) {
-    for (const box of _cellLineBoxes(ctx, cropOf(cells[i]), grid.f, lineH.get(cells[i].col), scans[i], !!cells[i].heading)) {
+    for (const box of _cellLineBoxes(ctx, cropOf(cells[i]), grid.f, cells[i].heading ? headingLineH : lineH.get(cells[i].col), scans[i], !!cells[i].heading)) {
       if (box.x1 - box.x0 >= 5 && box.y1 - box.y0 >= 5) items.push({ box, cell: cells[i] });
     }
     scans[i] = null;
@@ -368,4 +418,4 @@ async function ocrPageWithGrid(canvas, pageNum, grid, withHeading = true) {
   return { words, lines: [], cells };
 }
 
-if (typeof module !== 'undefined') module.exports = { gridClusters, gridTextBands, gridJointCount, gridDespeckle, gridSplitWide, gridInkRuns, gridSplitTall, gridUnderSegmented, gridCells, gridPickColumns, gridIsRuleFragment };
+if (typeof module !== 'undefined') module.exports = { gridClusters, gridTextBands, gridJointCount, gridRulesBelow, gridIsSideways, gridLineHeight, gridLinePitch, gridDespeckle, gridSplitWide, gridInkRuns, gridSplitTall, gridUnderSegmented, gridCells, gridPickColumns, gridIsRuleFragment };

@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 
-const { gridClusters, gridTextBands, gridJointCount, gridDespeckle, gridSplitWide, gridInkRuns, gridSplitTall, gridUnderSegmented, gridCells, gridPickColumns, gridIsRuleFragment } = createRequire(import.meta.url)('./docs/boq-grid.js');
+const { gridClusters, gridTextBands, gridJointCount, gridRulesBelow, gridIsSideways, gridLineHeight, gridDespeckle, gridSplitWide, gridInkRuns, gridSplitTall, gridLinePitch, gridUnderSegmented, gridCells, gridPickColumns, gridIsRuleFragment } = createRequire(import.meta.url)('./docs/boq-grid.js');
 
 const tests = {
   'a thick ruled line collapses to one position'() {
@@ -29,6 +29,17 @@ const tests = {
     const counts = [0, 9, 9, 9, 9, 9, 9, 2, 9, 9, 9, 9, 9, 9, 0];            // one band, a faint valley at row 7
     assert.deepEqual(gridSplitTall([[1, 14]], counts, 7), [[1, 7], [7, 14]]);
   },
+  'a tall band with no valley is one tall line, not two, whatever the line height estimate says'() {
+    assert.deepEqual(gridSplitTall([[1, 14]], [0, ...new Array(13).fill(9), 0], 7), [[1, 14]]);
+  },
+  'lines repeat at a steady pitch, one tall line does not'() {
+    const line = [1, 8, 9, 9, 8, 3, 1, 0, 0, 0, 0, 0];                       // 12 rows: a line of text and the gap under it
+    const three = [...line, ...line, ...line];
+    assert.equal(gridLinePitch(three, 0, 36, 6), 12);
+    assert.equal(gridLinePitch([...line, ...line.slice(0, 7)], 0, 19, 6), 12);   // two lines, the second without its gap
+    assert.equal(gridLinePitch(new Array(36).fill(9), 0, 36, 6), 0);           // a solid block has no repeat
+    assert.equal(gridLinePitch([2, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 2, 0], 0, 14, 6), 0);   // one tall line
+  },
   'a band of one line height is left alone'() {
     assert.deepEqual(gridSplitTall([[1, 9]], new Array(10).fill(5), 7), [[1, 9]]);
   },
@@ -53,6 +64,21 @@ const tests = {
   'cells are inset from the ruled lines and thin cells are dropped'() {
     const cells = gridCells([0, 100, 104], [0, 50, 60], 1);
     assert.deepEqual(cells.map(c => [c.row, c.col, c.x, c.y, c.width, c.height]), [[0, 0, 3, 3, 95, 45]]);
+  },
+  'a table of dense small print is read: rows 15 reference pixels apart still hold a line of text'() {
+    assert.equal(gridCells([0, 100, 200], [0, 30, 60], 2).length, 4);              // 2 columns x 2 rows, at twice the reference width
+  },
+  'a tall narrow box holds sideways text, a short or wide one does not'() {
+    assert.equal(gridIsSideways(14, 90), true);               // a column heading written upwards
+    assert.equal(gridIsSideways(60, 16), false);              // a normal line
+    assert.equal(gridIsSideways(8, 18), false);               // a lone digit: taller than wide, but too short to be a line turned on its side
+    assert.equal(gridIsSideways(40, 60), false);              // a heading cell with two or three lines is not sideways text
+  },
+  'the line height is a low estimate: the lower quartile of the band heights, so merged strips do not inflate it'() {
+    assert.equal(gridLineHeight([[37], [37, 81], [37, 37, 28], [37]]), 37);
+    assert.equal(gridLineHeight([[123], [40], [123], [40], [123], [123]]), 40);   // tight lines merged into one band in most cells
+    assert.equal(gridLineHeight([]), 0);
+    assert.equal(gridLineHeight([[], [40]]), 40);                          // an empty cell says nothing
   },
   'column lines: strong lines kept, letter strokes dropped'() {
     const mass = new Array(1000).fill(0);
@@ -96,6 +122,14 @@ const tests = {
     assert.equal(gridJointCount(ver, w, h, [4, 12], 8, 2), 2);
     assert.equal(gridJointCount(ver, w, h, [4, 12], 1, 2), 0);                    // a line above where the rules start
     assert.equal(gridJointCount(ver, w, h, [4, 12], 6, 2) >= 2, true);            // a tilted scan still joins within reach
+  },
+  'column rules that run on below the last row rule mean the grid stops short of the table'() {
+    const w = 20, h = 40, ver = new Uint8Array(w * h);
+    for (const x of [4, 12]) for (let y = 5; y < 38; y++) ver[y * w + x] = 1;
+    assert.equal(gridRulesBelow(ver, w, h, [4, 12], 10, 2), 25);                  // rules from row 13 to 37 are not part of the grid
+    assert.equal(gridRulesBelow(ver, w, h, [4, 12], 37, 2), 0);                   // a grid that ends where the rules end
+    const one = new Uint8Array(w * h); for (let y = 5; y < 38; y++) one[y * w + 4] = 1;
+    assert.equal(gridRulesBelow(one, w, h, [4, 12], 10, 2), 0);                   // a single stray vertical line is not a table edge
   },
   'a last column rule near the right edge of the page is kept, the edge shadow is not'() {
     const mass = new Array(1000).fill(0);
