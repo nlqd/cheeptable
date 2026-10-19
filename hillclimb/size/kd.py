@@ -130,6 +130,9 @@ class Lines(torch.utils.data.Dataset):
                     if only and it.get("src") not in only:
                         continue
                     g = cv2.copyMakeBorder(E.tight(it["crop"]), 0, 0, 10, 10, cv2.BORDER_CONSTANT, value=255)
+                    if it.get("src") == "empty":                # no text: the target is the end token at once, and the teacher (which invents text here) is ignored
+                        self.items.append((g, [1, 2], 1))
+                        continue
                     lab = labels.get((shard.name, i))
                     if truth:                                   # what the picture really says, not what the teacher read
                         ref = E.norm(it["ref"])
@@ -139,10 +142,10 @@ class Lines(torch.utils.data.Dataset):
                         else:
                             lab = [1] + [vocab.c2i[c] for c in ref] + [2] if ref and all(c in vocab.c2i for c in ref) else None
                     if lab and 3 <= len(lab) <= 120:
-                        self.items.append((g, lab))
+                        self.items.append((g, lab, 0))
         c = E.cfg()["dataset"]
         self.widths = []
-        for g, _ in self.items:
+        for g, _, _ in self.items:
             h, w = g.shape
             nw = math.ceil(int(c["image_height"] * w / h) / 10) * 10
             self.widths.append(min(max(nw, c["image_min_width"]), c["image_max_width"]))
@@ -152,9 +155,9 @@ class Lines(torch.utils.data.Dataset):
 
     def __getitem__(self, i):
         c = E.cfg()["dataset"]
-        g, lab = self.items[i]
+        g, lab, empty = self.items[i]
         t = process_input(Image.fromarray(g).convert("RGB"), c["image_height"], c["image_min_width"], c["image_max_width"])[0]
-        return t, torch.tensor(lab)
+        return t, torch.tensor(lab), empty
 
 
 def bucket_batches(widths, bs, seed):
@@ -171,12 +174,12 @@ def bucket_batches(widths, bs, seed):
 
 
 def collate(b):
-    x = torch.stack([t for t, _ in b])
-    T = max(len(l) for _, l in b)
+    x = torch.stack([t for t, _, _ in b])
+    T = max(len(l) for _, l, _ in b)
     y = torch.zeros(len(b), T, dtype=torch.long)
-    for i, (_, l) in enumerate(b):
+    for i, (_, l, _) in enumerate(b):
         y[i, :len(l)] = l
-    return x, y
+    return x, y, torch.tensor([e for _, _, e in b], dtype=torch.float32)
 
 
 # ---------- pruning ----------
@@ -284,8 +287,8 @@ def main():
     while step < steps:
         batches = bucket_batches(ds.widths, bs, epoch)
         loader = torch.utils.data.DataLoader(ds, batch_sampler=batches, collate_fn=collate, num_workers=10, prefetch_factor=4)
-        for x, y in loader:
-            x, y = x.to(E.DEV), y.to(E.DEV)
+        for x, y, empty in loader:
+            x, y, empty = x.to(E.DEV), y.to(E.DEV), empty.to(E.DEV)
             tgt_in = y[:, :-1].T.contiguous()
             valid = (y[:, 1:] != 0).float()
             with torch.no_grad(), torch.autocast("cuda", dtype=torch.bfloat16):
@@ -293,7 +296,8 @@ def main():
             with torch.autocast("cuda", dtype=torch.bfloat16):
                 s_logits, s_mem = logits_for(student, x, tgt_in)
             kl = (F.softmax(t_logits.float(), -1) * (F.log_softmax(t_logits.float(), -1) - F.log_softmax(s_logits.float(), -1))).sum(-1)
-            kl = (kl * valid).sum() / valid.sum()
+            klw = valid * (1 - empty)[:, None]                  # not on empty crops: the teacher's text there is the error being unlearned
+            kl = (kl * klw).sum() / klw.sum().clamp_min(1)
             ce = (F.cross_entropy(s_logits.float().transpose(1, 2), y[:, 1:], reduction="none") * valid).sum() / valid.sum()
             mem = F.mse_loss(s_mem.float(), t_mem.float()) / t_mem.float().pow(2).mean().clamp_min(1e-6)
             loss = w_kl * kl + w_ce * ce + lam_mem * mem
