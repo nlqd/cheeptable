@@ -8,7 +8,7 @@ a = sys.argv
 url, pdf = a[1], a[2]
 port = a[a.index("--port") + 1] if "--port" in a else "9333"
 BASE = "http://localhost:8080"
-HOSTED = str(__import__("pathlib").Path(__file__).resolve().parent.parent / "size" / "hosted" / "vietocr" / "cheep-v2") + "/"      # see size/FINDINGS-size.md for how the package is staged
+HOSTED = str(__import__("pathlib").Path(__file__).resolve().parent.parent / "size" / "hosted" / "vietocr" / "cheep-v3") + "/"      # see size/FINDINGS-size.md for how the package is staged
 FILES = ["model.bin", "enc.skel.onnx", "encq.skel.onnx", "init.skel.onnx", "step.skel.onnx"]    # the files a CPU visit fetches
 
 
@@ -34,7 +34,7 @@ def fresh(keep_cache=False):
     rodney("open", url); rodney("waitload"); time.sleep(0.8)
     js("(window.alert = () => {}, window.__retries = 0, CT.on('model:retry', () => window.__retries++), 1)")
     # the engine loads on demand, so its settings exist only after it has loaded; then point the CPU-path models at the flaky route
-    js("(window.__ready = false, CT.preloadEngine().then(() => { ONNX_MODELS.compact = '%s/flaky/hillclimb/size/hosted/vietocr/cheep-v2'; window.__ready = true; }), 1)" % BASE)
+    js("(window.__ready = false, CT.preloadEngine().then(() => { ONNX_MODELS.compact = '%s/flaky/hillclimb/size/hosted/vietocr/cheep-v3'; window.__ready = true; }), 1)" % BASE)
     for _ in range(60):
         if js("window.__ready") == "true":
             break

@@ -6,20 +6,20 @@
 // A developer can point the page at another copy of the models with localStorage['ct.models'] (a link must not be able to).
 const _DEV_MODEL_BASE = (() => { try { return localStorage.getItem('ct.models'); } catch (e) { return null; } })();
 const ONNX_MODEL_BASE = _DEV_MODEL_BASE || 'https://huggingface.co/dzngo/vietocr-models/resolve/main';
-// The exact files of vietocr/cheep-v2 (hillclimb/size/FINDINGS-size.md). A copy that does not match, truncated in a cache or
+// The exact files of vietocr/cheep-v3 (hillclimb/size/FINDINGS-size.md). A copy that does not match, truncated in a cache or
 // altered on the way, is thrown away and fetched again; a developer's own copy is not checked.
 const ONNX_SHA256 = {
-  'cheep-v2/model.bin': '1d16ca16e3a9220a0600969aecac7efb4c85bb20f2639a01fc7de1b5c7619663',
-  'cheep-v2/enc.skel.onnx': 'e051b7f94f6e6061597916124ad37fc07dd9726d9521f5e8b7d2a15031770921',
-  'cheep-v2/encq.skel.onnx': '5ad8b51097a4761ca4e237e6063a65ca5211240412f46486d276d967d6d7cb99',
-  'cheep-v2/init.skel.onnx': 'a70880e736736f541704f85f8a13c3c999376448d67f68daf3136da24b38593f',
-  'cheep-v2/step.skel.onnx': '59f6770d95f38e4135037952648d93744f083313c87bdda4f4684115fa40a126',
+  'cheep-v3/model.bin': '630b51373833490740f8a175a36794fbb893b1f87977ef24869702932f66b242',
+  'cheep-v3/enc.skel.onnx': 'e051b7f94f6e6061597916124ad37fc07dd9726d9521f5e8b7d2a15031770921',
+  'cheep-v3/encq.skel.onnx': 'a48394c6afe8d28ba7443858eda3d9d592f9c7a77c068a5e689f8c16a101e410',
+  'cheep-v3/init.skel.onnx': 'a70880e736736f541704f85f8a13c3c999376448d67f68daf3136da24b38593f',
+  'cheep-v3/step.skel.onnx': '59f6770d95f38e4135037952648d93744f083313c87bdda4f4684115fa40a126',
 };
 const ONNX_MODELS = {
   det:     `${ONNX_MODEL_BASE}/paddleocr/det_v3.onnx`,
   // The recogniser: one entropy-coded weight file and three graph files without weights (hillclimb/size/build_wire.py,
   // docs/boq-wire.js). Weights are 2-6 bit codes with a step per group of weights; sessions are opened by boq-sessions.js.
-  compact: `${ONNX_MODEL_BASE}/vietocr/cheep-v2`,
+  compact: `${ONNX_MODEL_BASE}/vietocr/cheep-v3`,
   vocab:   `${ONNX_MODEL_BASE}/vietocr/vocab.txt`,
 };
 const CACHE_NAME = 'boq-onnx-models-v1';

@@ -151,6 +151,23 @@ A photo of a service price board (12 vehicle models by 15 jobs, a time row and a
 - `line_bench.py` only scores lines whose characters are in the recogniser's vocabulary and which are at least 5 characters and 25 px wide. Short units and numbers are covered by the contract cells; the diameter sign is not in the vocabulary and is not scored.
 - The cell shard (`make_cells.py`) was designed after seeing how the student failed on the contract's cells. The 52-document check has few ruled cells, so it says little about that fix.
 
+## Third climb: crops with no text, and the top of the page (cheep-v3)
+
+What the contract score hid: it counts the 473 numbered rows only. Scoring every row of the sheet (`score_full.py`, `golden_v3.xlsx`: 550 rows, the non-item rows transcribed twice blind from the page pictures) showed that on the live model the title block was cut at the table's column lines ("VIỆT NAM" came out as "Y | YẾT NA | M"), the header of every page was repeated, shaded header cells and ruling stubs came out as invented digit strings ("03800000099"), and page 11 lost its whole last column.
+
+| Cause | Fix | Evidence |
+|---|---|---|
+| A page-edge shadow counted as a ruled line, so the whole heading was one row cut at the column lines | a horizontal rule belongs to the table only if column rules cross it (joints, as in lattice table readers); the heading is read as whole lines (word-gap cuts) on the first table page only | heading character error 0.049 to 0.000 |
+| Column rules were looked for in the central 4 to 96% of the page; page 11's table edge sits at 97% | 2 to 98.5% | numbers all right on the contract 0.966 to 0.979 |
+| Header and column-number rows repeat on every page | `boq-headers.js` drops the later copies | extra rows 20 to 2 |
+| The recogniser always emits text, so noise gets text | `make_empty.py`: 24,000 crops of paper texture, specks, ruling stubs, underlines, fold marks, shaded cells with the end token as target and no teacher KL; fine-tuned from y16 for 5,000 steps (z1) | rows with 9 or more invented digits over 208 held-out pages: 108 (y16) to 10 (z1); word F1 against the text layer -0.001 (neutral) |
+
+Tried and dropped (each made the contract's description error worse, 0.020 to 0.024 or 0.028): removing ruling remnants at cell edges, dropping speck bands, a narrower ink span. Paper-texture despeckling (a lone dark pixel is not ink) was neutral and kept.
+
+Held-out check of the whole change (page code and z1 together against the live code and y16, 208 page pictures of the 594-document set): word F1 against the text layer +0.032 on 82 pages (better 28, worse 16, same 38; the two largest losses are a noisy table page that now has a clean header and an English math page). On 58 pages without a text layer, the page code alone (blind judges): new 26, old 15, tie 11, both bad 6. Contract in the browser: 473 of 473 rows, numbers 0.979, description error 0.021 (0.020 before). Review cutoffs unchanged (calibration identical).
+
+Not fixed: `Þ` (the vocabulary lacks it) is read as P, 9 or b; the equation row "A = 1+2+...+8" is read as digits; a glossy coloured bus-timetable board is read as garbage by both models.
+
 ## Not done, not known
 
 - No real phone, Safari or Firefox; externalData is only exercised in Chrome. Memory per worker was not measured (estimated 70 to 80 MB against about 250 MB before).
