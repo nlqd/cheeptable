@@ -1,0 +1,13 @@
+size/thumbs/
+size/aball/
+size/labels/
+size/ab_all_lane*.jsonl
+size/ab_all_lane*.log
+size/ab_istable_lane*.jsonl
+size/ab_istable_lane*.log
+size/zero_diag*.jsonl
+size/bad_run1/
+size/ab_tab_lane*.jsonl
+size/ab_tab_lane*.log
+size/ab_tab_v1_lane*.jsonl
+size/ab_tab_v2_lane*.jsonl
