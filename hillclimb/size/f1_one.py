@@ -9,6 +9,15 @@ words = lambda s: [w for w in re.split(r"\s+", norm(s)) if w]
 def f1(ref, got):
     hit = sum((collections.Counter(ref) & collections.Counter(got)).values())
     return 0 if not hit else 2 * hit / (len(ref) + len(got))
+def squash(s):
+    return re.sub(r"\s+", "", unicodedata.normalize("NFC", s).lower())
+def gram_f1(ref_text, got_text):
+    g = lambda t: collections.Counter(t[i:i + 3] for i in range(len(t) - 2))
+    ref, got = squash(ref_text), squash(got_text)
+    hit = sum((g(ref) & g(got)).values())
+    return 0.0 if not hit else 2 * hit / (max(len(ref) - 2, 1) + max(len(got) - 2, 1))
+def text_of(path):
+    return "".join(str(c.get("value") if isinstance(c, dict) else c) for row in json.load(open(path)) for c in row.get("cells", []))
 def tokens(path):
     t = []
     for row in json.load(open(path)):
@@ -20,4 +29,5 @@ ref = words(pdfium.PdfDocument(path)[page - 1].get_textpage().get_text_range())
 old = f"size/aball/{doc}_p{page}.student.json"
 new = f"/tmp/one_{doc}_{page}.json"
 subprocess.run(["python3", "ux/e2e.py", "http://localhost:8080/docs/index.html", f"size/aball/{doc}_p{page}.png", new, "--port", port, "--models", "http://localhost:8080/hillclimb/size/hosted"], capture_output=True, text=True, timeout=300)
-print(f"{doc} p{page}: F1 before {f1(ref, tokens(old)):.3f}  after {f1(ref, tokens(new)):.3f}")
+layer = pdfium.PdfDocument(path)[page - 1].get_textpage().get_text_range()
+print(f"{doc} p{page}: char 3-gram F1 before {gram_f1(layer, text_of(old)):.3f} after {gram_f1(layer, text_of(new)):.3f}   (word F1 {f1(ref, tokens(old)):.3f} -> {f1(ref, tokens(new)):.3f})")

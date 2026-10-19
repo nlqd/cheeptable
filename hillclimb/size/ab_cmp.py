@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Two runs over the same table pages: size/ab_tab_v1_lane*.jsonl (before) and size/ab_tab_lane*.jsonl (after).  run from hillclimb/
+"""Two runs over the same table pages.  run from hillclimb/:  size/ab_cmp.py [BEFORE_GLOB [AFTER_GLOB]]   (default v1 against the latest)
 Page F1 against the text layer (a table page read as nothing is 0); pages gained and lost; document pass rate (every page >= 0.9) for each."""
 import collections, glob, json, statistics as st, sys
 bar = 0.9
@@ -12,7 +12,8 @@ def load(pat):
                 continue
             out[(r["id"], r["page"])] = 0.0 if r["student_words"] == 0 else (r["student_f1"] or 0.0)
     return out
-a, b = load("size/ab_tab_v1_lane*.jsonl"), load("size/ab_tab_lane*.jsonl")
+a = load(sys.argv[1] if len(sys.argv) > 1 else "size/ab_tab_v1_lane*.jsonl")
+b = load(sys.argv[2] if len(sys.argv) > 2 else "size/ab_tab_lane*.jsonl")
 common = sorted(set(a) & set(b))
 print(f"pages in both {len(common)}   mean F1 before {st.mean(a[k] for k in common):.3f} after {st.mean(b[k] for k in common):.3f}")
 d = [b[k] - a[k] for k in common]

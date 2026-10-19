@@ -2,10 +2,12 @@
 """For the pages of size/ab_tab_lane*.jsonl below the pass mark: how much of the page's text did the app find (recall), how much of what it
 wrote is on the page (precision)?  run from hillclimb/:  size/ab_why.py [--pass 0.9]
 low recall = content missed; low precision = junk or invented text; both middling = characters misread."""
-import collections, glob, json, re, sys, unicodedata
+import collections, glob, json, re, sys, unicodedata, zlib
 import pypdfium2 as pdfium
 a = sys.argv
 bar = float(a[a.index("--pass") + 1]) if "--pass" in a else 0.9
+# Development half: documents whose name hashes even. The other half is kept unexamined for the final report; --all lists both.
+dev = lambda doc: "--all" in a or zlib.crc32(doc.encode()) % 2 == 0
 norm = lambda s: unicodedata.normalize("NFC", s).lower()
 words = lambda s: [w for w in re.split(r"\s+", norm(s)) if w]
 paths = {e["id"]: e["local_path"] for f in glob.glob("../benchmark/manifest3_t*.json") for e in json.load(open(f))}
@@ -13,7 +15,7 @@ out = []
 for f in sorted(glob.glob("size/ab_tab_lane*.jsonl")):
     for l in open(f):
         r = json.loads(l)
-        if r["student_words"] is None or r["layer_words"] < 15:
+        if r["student_words"] is None or r["layer_words"] < 15 or not dev(r["id"]):
             continue
         got = []
         for row in json.load(open(f"size/aball/{r['id']}_p{r['page']}.student.json")):

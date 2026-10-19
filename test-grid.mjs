@@ -40,6 +40,13 @@ const tests = {
     assert.equal(gridLinePitch(new Array(36).fill(9), 0, 36, 6), 0);           // a solid block has no repeat
     assert.equal(gridLinePitch([2, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 2, 0], 0, 14, 6), 0);   // one tall line
   },
+  'a cell of tiny dense text, merged into one strip, is cut at its measured pitch even when every band in the column is that tall'() {
+    const line = [1, 8, 9, 9, 8, 3, 1, 1, 0, 0, 0, 0];                           // 12 rows per line, almost no gap
+    const strip = [...line, ...line, ...line, ...line, ...line, ...line, ...line, ...line, ...line, ...line];   // 10 lines, 120 rows
+    const pieces = gridSplitTall([[0, 120]], strip, 120, 1.7, 0.3, 9);           // the column's own line-height estimate is the whole strip
+    assert.equal(pieces.length, 10);
+    assert.deepEqual(gridSplitTall([[0, 120]], strip, 120), [[0, 120]]);         // without the absolute floor it is left alone
+  },
   'a band of one line height is left alone'() {
     assert.deepEqual(gridSplitTall([[1, 9]], new Array(10).fill(5), 7), [[1, 9]]);
   },

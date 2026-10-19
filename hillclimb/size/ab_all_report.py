@@ -1,18 +1,38 @@
 #!/usr/bin/env python3
 """Per-document pass rate from size/ab_tab_lane*.jsonl (the labelled table pages, read by size/ab_all.py --only).  run from hillclimb/:  size/ab_all_report.py [--pass 0.9] [--worst 40]
-A page passes when its word F1 against the text layer is at least --pass. A document passes when every one of its pages does,
+A page passes when its character 3-gram F1 against the text layer (spaces ignored) is at least --pass. A document passes when every one of its pages does,
 so one bad page is enough to fail it. Pages with no scoreable layer (fewer than 15 words) are left out."""
-import collections, glob, json, statistics as st, sys
+import collections, glob, json, re, statistics as st, sys, unicodedata
+
+import pypdfium2 as pdfium
 
 
 a = sys.argv
 opt = lambda k, d: type(d)(a[a.index(k) + 1]) if k in a else d
 bar, worst_n = opt("--pass", 0.9), opt("--worst", 40)
 
+# Page score: F1 of the character 3-grams of the page's text with all spaces removed. Some PDFs space their glyphs apart
+# ("1 5 0 4 3", "Q U AN G"), which makes any word-level comparison against the text layer meaningless; this ignores spacing.
+squash = lambda s: re.sub(r"\s+", "", unicodedata.normalize("NFC", s).lower())
+grams = lambda s: collections.Counter(s[i:i + 3] for i in range(len(s) - 2))
+paths = {e["id"]: e["local_path"] for f in glob.glob("../benchmark/manifest3_t*.json") for e in json.load(open(f))}
+
+
+def gram_f1(doc, page):
+    ref = squash(pdfium.PdfDocument(paths[doc])[page - 1].get_textpage().get_text_range())
+    got = squash("".join(str(c.get("value") if isinstance(c, dict) else c) for row in json.load(open(f"size/aball/{doc}_p{page}.student.json")) for c in row.get("cells", [])))
+    if len(ref) < 20 or not got:
+        return 0.0 if len(ref) >= 20 else None
+    hit = sum((grams(ref) & grams(got)).values())
+    return 0.0 if not hit else 2 * hit / (max(len(ref) - 2, 1) + max(len(got) - 2, 1))
+
+
 pages = {}
 for f in sorted(glob.glob("size/ab_tab_lane*.jsonl")):
     for line in open(f):
         r = json.loads(line)
+        if r["student_words"] is not None:
+            r["student_f1"] = gram_f1(r["id"], r["page"])
         pages[(r["id"], r["page"])] = r
 docs = collections.defaultdict(list)
 for r in pages.values():

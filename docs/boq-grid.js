@@ -183,13 +183,16 @@ function gridUnderSegmented(words) {
   return words.length ? crowded / words.length : 0;
 }
 
-function gridSplitTall(bands, counts, lineH, ratio = 1.7, window = 0.3) {
+function gridSplitTall(bands, counts, lineH, ratio = 1.7, window = 0.3, floor = 0) {
   const out = [];
+  // `floor` is the shortest line pitch worth looking for. Where every band of a column is a merged strip (small print set tight) the
+  // column's own line height is the strip itself, so a band is examined from twice the floor up and the floor is the shortest lag tried.
+  const low = floor > 0 ? Math.min(lineH > 0 ? lineH : Infinity, 2.5 * floor) : lineH;
   for (const [a, b] of bands) {
     const h = b - a;
-    if (!(lineH > 0) || h < ratio * lineH) { out.push([a, b]); continue; }
+    if (!(low > 0) || h < ratio * low) { out.push([a, b]); continue; }
     // the band is cut only if its ink repeats at a steady pitch, which is the pitch of its lines; one tall line does not repeat
-    const pitch = gridLinePitch(counts, a, b, 0.8 * lineH);
+    const pitch = gridLinePitch(counts, a, b, floor > 0 ? floor : 0.8 * lineH);
     if (!pitch) { out.push([a, b]); continue; }
     const n = Math.max(2, Math.round(h / pitch));
     let from = a;
@@ -320,10 +323,13 @@ function _cellLineBoxes(ctx, cell, f, lineH, scanned, splitGaps = false) {
     return [left, right];
   };
   // Only a band wider than it is tall can be several lines of text: a tall narrow band is sideways text and stays whole.
-  const pieces = bands.flatMap(([a, b]) => { const [l, r] = extent(a, b); return r - l + 1 >= 1.5 * (b - a) ? gridSplitTall([[a, b]], counts, lineH) : [[a, b]]; });
+  const pieces = bands.flatMap(([a, b]) => { const [l, r] = extent(a, b); return r - l + 1 >= 1.5 * (b - a) ? gridSplitTall([[a, b]], counts, lineH, 1.7, 0.3, Math.round(GRID_BAND_MIN_H * 1.5 * f)) : [[a, b]]; });
   return pieces.flatMap(([a, b]) => {
-    const ink = splitGaps ? colInk(a, b) : null;
-    const spans = splitGaps ? gridInkRuns(ink, Math.round(2.5 * (b - a))).flatMap(run => gridSplitWide(ink, run, 16 * (b - a), Math.round(0.25 * (b - a)))) : [extent(a, b)];
+    const ink = colInk(a, b);
+    // The recogniser sees a strip 32 high and at most 512 wide, so a line wider than about 16 times its height is squeezed past reading:
+    // it is cut at its word gaps, in a heading wherever the ink breaks, in a cell only where the line is that long.
+    const [left0, right0] = extent(a, b);
+    const spans = splitGaps ? gridInkRuns(ink, Math.round(2.5 * (b - a))).flatMap(run => gridSplitWide(ink, run, 16 * (b - a), Math.round(0.25 * (b - a)))) : left0 > right0 ? [] : gridSplitWide(ink, [left0, right0], 16 * (b - a), Math.round(0.25 * (b - a)));
     return spans.map(([left, right], i) => {
       if (gridIsRuleFragment(b - a, cell.height, right - left + 1)) return null;
       if (splitGaps && right - left + 1 < 0.6 * (b - a)) return null;          // a fold mark or a hole at the edge of the page, not a word
