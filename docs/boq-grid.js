@@ -336,7 +336,8 @@ function _cellLineBoxes(ctx, cell, f, lineH, scanned, splitGaps = false) {
       // beside a neighbouring piece the margin stops halfway across the gap, so a letter is not read twice
       const lm = i > 0 ? Math.min(margin, (left - spans[i - 1][1] - 1) >> 1) : margin;
       const rm = i < spans.length - 1 ? Math.min(margin, (spans[i + 1][0] - right - 1) >> 1) : margin;
-      return { x0: x + Math.max(0, left - lm), x1: x + Math.min(width, right + 1 + rm), y0: y + a, y1: y + b };
+      const vm = Math.round(0.15 * (b - a));
+      return { x0: x + Math.max(0, left - lm), x1: x + Math.min(width, right + 1 + rm), y0: y + Math.max(0, a - vm), y1: y + Math.min(cell.height, b + vm) };
     });
   }).filter(Boolean);
 }
