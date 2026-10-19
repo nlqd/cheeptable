@@ -12,3 +12,5 @@ size/ab_tab_lane*.log
 size/ab_tab_v1_lane*.jsonl
 size/ab_tab_v2_lane*.jsonl
 size/ab_tab_v3_lane*.jsonl
+size/judge3/
+size/ab_tab_v4_lane*.jsonl

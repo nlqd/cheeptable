@@ -93,7 +93,8 @@ CT.runJob = async function (file) {
   const allTextItems = [], allLines = [], textPages = [];
   const allOcrWords = [], allOcrLines = [], allBorderCells = [];
   let poolReady = null;
-  let headingRead = false;            // the heading above the table is read on the first table page only
+  let headingRead = false;           // the heading above the table is read on the first table page only
+  const gridPages = new Set();       // pages in which a ruled grid was found and read
   let ocrPageCount = 0;
 
   for (let p = 1; p <= numPages; p++) {
@@ -173,6 +174,7 @@ CT.runJob = async function (file) {
           CT.emit('page:grid', { page: p, mode: 'detector', cols: 0, rows: 0 });
         }
         if (grid) {
+          gridPages.add(p);
           log('  Page ' + p + ': ruled grid ' + (grid.xs.length - 1) + ' columns x ' + (grid.ys.length - 1) + ' rows', 'ok');
           borderData = { cells: ocrResult.cells, lines: { horizontal: [], vertical: [] } };
         }
@@ -234,14 +236,10 @@ CT.runJob = async function (file) {
   }
   let rows = parts.length > 1 ? parts.flat().map((r, i) => [r, i]).sort((x, y) => (x[0].page || 0) - (y[0].page || 0) || x[1] - y[1]).map(x => x[0]) : (parts[0] || []);
 
-  // Text that is not laid out in columns (a letter, a contents page, a gazette page) comes out one cell per line: a page where
-  // fewer than three rows, or fewer than one in five, has two or more cells is not a table and is left out. If no page is a table, say so.
-  const filled = (r) => (r.cells || []).filter(c => String((c && typeof c === 'object') ? c.value : c).trim()).length;
-  const byPage = new Map();
-  rows.forEach(r => byPage.set(r.page, [...(byPage.get(r.page) || []), r]));
-  const keepPage = new Map([...byPage].map(([pg, rs]) => { const multi = rs.filter(r => filled(r) >= 2).length; return [pg, multi >= 3 && multi / rs.length >= 0.2]; }));
+  // Pages that are not tables (a letter, a contents page) are left out; a page with a drawn grid is kept however short. If no page is a table, say so.
   if (rows.length) {
-    const kept = rows.filter(r => keepPage.get(r.page));
+    const keep = tablePages(rows, gridPages);
+    const kept = rows.filter(r => keep.has(r.page));
     if (kept.length < rows.length) log(`Left out ${rows.length - kept.length} rows on pages that are not tables`, 'warn');
     rows = kept;
   }

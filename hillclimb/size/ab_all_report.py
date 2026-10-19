@@ -2,7 +2,7 @@
 """Per-document pass rate from size/ab_tab_lane*.jsonl (the labelled table pages, read by size/ab_all.py --only).  run from hillclimb/:  size/ab_all_report.py [--pass 0.9] [--worst 40]
 A page passes when its character 3-gram F1 against the text layer (spaces ignored) is at least --pass. A document passes when every one of its pages does,
 so one bad page is enough to fail it. Pages with no scoreable layer (fewer than 15 words) are left out."""
-import collections, glob, json, re, statistics as st, sys, unicodedata
+import collections, glob, json, re, statistics as st, sys, unicodedata, zlib
 
 import pypdfium2 as pdfium
 
@@ -13,7 +13,8 @@ bar, worst_n = opt("--pass", 0.9), opt("--worst", 40)
 
 # Page score: F1 of the character 3-grams of the page's text with all spaces removed. Some PDFs space their glyphs apart
 # ("1 5 0 4 3", "Q U AN G"), which makes any word-level comparison against the text layer meaningless; this ignores spacing.
-squash = lambda s: re.sub(r"\s+", "", unicodedata.normalize("NFC", s).lower())
+# runs of leader dots, dashes and underscores (blank forms) are collapsed to one: they would otherwise outweigh the words
+squash = lambda s: re.sub(r"([.\-_·…])\1+", r"\1", re.sub(r"\s+", "", unicodedata.normalize("NFC", s).lower()))
 grams = lambda s: collections.Counter(s[i:i + 3] for i in range(len(s) - 2))
 paths = {e["id"]: e["local_path"] for f in glob.glob("../benchmark/manifest3_t*.json") for e in json.load(open(f))}
 
@@ -45,6 +46,11 @@ for r in pages.values():
         r["student_f1"], r["student_num"] = 0.0, None
 scored = {d: [r for r in rs if r["student_f1"] is not None] for d, rs in docs.items()}
 scored = {d: rs for d, rs in scored.items() if rs}
+# --dev / --test: only the documents whose name hashes even / odd (the half that may be looked at while fixing / the half kept for the final number)
+if "--dev" in a:
+    scored = {d: rs for d, rs in scored.items() if zlib.crc32(d.encode()) % 2 == 0}
+if "--test" in a:
+    scored = {d: rs for d, rs in scored.items() if zlib.crc32(d.encode()) % 2 == 1}
 failed = [r for r in pages.values() if r["student_words"] is None]
 print(f"pages read {len(pages)}  documents {len(docs)}  scoreable documents {len(scored)}  pages the app failed on {len(failed)}")
 

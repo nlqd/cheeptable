@@ -260,7 +260,10 @@ async function ocrTableExtract(ocrLines, ocrWords, borderCells = []) {
   const gridPages = new Set();
   for (const p of new Set(borderCells.map(c => c.page))) {
     const n = borderCells.filter(c => c.page === p).length;
-    if (n >= 20) gridPages.add(p); else log(`  Page ${p}: only ${n} cells in a grid, read as text instead`, 'warn');
+    const share = shareInsideCells(ocrWords.filter(w => w.page === p), borderCells.filter(c => c.page === p));
+    if (n < 20) log(`  Page ${p}: only ${n} cells in a grid, read as text instead`, 'warn');
+    else if (share < 0.8) log(`  Page ${p}: the grid's cells hold ${(100 * share).toFixed(0)}% of the words, read as text instead`, 'warn');
+    else gridPages.add(p);
   }
   const parts = [];
   if (gridPages.size) {
