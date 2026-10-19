@@ -103,7 +103,7 @@ CT.loadCSS = (href) => CT.loaded[href] || (CT.loaded[href] = new Promise((ok, fa
 CT.ENGINE = {
   cdn: ['https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js', 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.22.0/dist/ort.min.js'],
   local: ['boq-utils.js', 'boq-ocr.js',
-    'boq-decode.js', 'boq-pool.js', 'boq-wire.js', 'boq-sessions.js', 'boq-onnx.js', 'boq-grid.js', 'boq-arith.js', 'boq-sequence.js', 'boq-extract.js', 'pipeline.js'],
+    'boq-decode.js', 'boq-pool.js', 'boq-wire.js', 'boq-sessions.js', 'boq-onnx.js', 'boq-grid.js', 'boq-arith.js', 'boq-sequence.js', 'boq-headers.js', 'boq-extract.js', 'pipeline.js'],
 };
 // Everything the OCR job needs. Called when the visitor shows intent (pointer over the drop zone, focus, touch) and again,
 // harmlessly, when a file is chosen. OpenCV (3.6 MB) and the models are fetched later, when a job really starts.

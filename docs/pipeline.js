@@ -93,6 +93,7 @@ CT.runJob = async function (file) {
   const allTextItems = [], allLines = [], textPages = [];
   const allOcrWords = [], allOcrLines = [], allBorderCells = [];
   let poolReady = null;
+  let headingRead = false;            // the heading above the table is read on the first table page only
   let ocrPageCount = 0;
 
   for (let p = 1; p <= numPages; p++) {
@@ -150,7 +151,8 @@ CT.runJob = async function (file) {
         for (let attempt = 1; ; attempt++) {       // one automatic second try, on fresh workers, before the page is given up
           try {
             await poolReady;                       // reads must not start on the page thread by accident
-            ocrResult = grid ? await ocrPageWithGrid(canvas, p, grid) : await ocrPageWithOnnx(canvas, p);
+            ocrResult = grid ? await ocrPageWithGrid(canvas, p, grid, !headingRead) : await ocrPageWithOnnx(canvas, p);
+            if (grid) headingRead = true;
             break;
           } catch (err) {
             if (cancelled() || attempt >= 2) throw err;
@@ -243,6 +245,11 @@ CT.runJob = async function (file) {
     if (kept.length < rows.length) log(`Left out ${rows.length - kept.length} rows on pages that are not tables`, 'warn');
     rows = kept;
   }
+
+  // a table over several pages repeats its header on each one; one header is enough
+  const before = rows.length;
+  rows = dropRepeatedHeaders(rows);
+  if (rows.length < before) log('Dropped ' + (before - rows.length) + ' repeated header rows', 'ok');
 
   extractedRows = rows;
   CT.state.done = true;

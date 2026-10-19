@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 
-const { gridClusters, gridTextBands, gridSplitTall, gridUnderSegmented, gridCells, gridPickColumns, gridIsRuleFragment } = createRequire(import.meta.url)('./docs/boq-grid.js');
+const { gridClusters, gridTextBands, gridJointCount, gridDespeckle, gridSplitWide, gridInkRuns, gridSplitTall, gridUnderSegmented, gridCells, gridPickColumns, gridIsRuleFragment } = createRequire(import.meta.url)('./docs/boq-grid.js');
 
 const tests = {
   'a thick ruled line collapses to one position'() {
@@ -70,6 +70,38 @@ const tests = {
     assert.equal(gridIsRuleFragment(20, 20, 5), true);
     assert.equal(gridIsRuleFragment(13, 20, 5), false);          // a digit "1" centred in the cell
     assert.equal(gridIsRuleFragment(20, 20, 60), false);         // a wide text line that fills the cell
+  },
+  'a heading with text at both ends is two runs, words in one line are one'() {
+    const ink = [...Array(10).fill(3), ...Array(80).fill(0), ...Array(10).fill(3)];
+    assert.deepEqual(gridInkRuns(ink, 30), [[0, 9], [90, 99]]);
+    const words = [...Array(10).fill(3), 0, 0, 0, ...Array(10).fill(3)];
+    assert.deepEqual(gridInkRuns(words, 30), [[0, 22]]);
+  },
+  'a lone dark pixel is texture, a two-pixel stroke is ink'() {
+    const w = 5, h = 3, ink = new Uint8Array(w * h);
+    ink[0 * w + 0] = 1;                                          // alone
+    ink[1 * w + 3] = 1; ink[2 * w + 3] = 1;                      // a stroke
+    assert.deepEqual([...gridDespeckle(ink, w, h)], [0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0]);
+  },
+  'a line too wide for the recogniser is cut at the blank stretch nearest its middle'() {
+    const ink = [...Array(40).fill(1), 0, 0, ...Array(10).fill(1), 0, ...Array(40).fill(1)];     // 93 wide, gaps at 40-41 and 52
+    assert.deepEqual(gridSplitWide(ink, [0, 92], 60), [[0, 39], [42, 92]].flatMap(r => gridSplitWide(ink, r, 60)));
+    assert.deepEqual(gridSplitWide(ink, [0, 92], 100), [[0, 92]]);
+    assert.deepEqual(gridSplitWide(Array(100).fill(1), [0, 99], 30), [[0, 99]]);                  // no gap to cut at
+    assert.deepEqual(gridSplitWide(ink, [0, 92], 60, 3), [[0, 92]]);                              // gaps of 1-2 columns are between letters
+  },
+  'a ruled line crossed by the column rules is a row boundary, a page-edge shadow is not'() {
+    const w = 20, h = 20, ver = new Uint8Array(w * h);
+    for (const x of [4, 12]) for (let y = 5; y < 18; y++) ver[y * w + x] = 1;     // two column rules from row 5 down
+    assert.equal(gridJointCount(ver, w, h, [4, 12], 8, 2), 2);
+    assert.equal(gridJointCount(ver, w, h, [4, 12], 1, 2), 0);                    // a line above where the rules start
+    assert.equal(gridJointCount(ver, w, h, [4, 12], 6, 2) >= 2, true);            // a tilted scan still joins within reach
+  },
+  'a last column rule near the right edge of the page is kept, the edge shadow is not'() {
+    const mass = new Array(1000).fill(0);
+    mass[8] = 255 * 5000; mass[995] = 255 * 5000;                // shadows at both page edges
+    for (const x of [100, 500, 970]) mass[x] = 255 * 300;
+    assert.deepEqual(gridPickColumns(mass, 1), [100, 500, 970]);
   },
 };
 
