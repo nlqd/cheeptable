@@ -18,11 +18,12 @@ function tablePages(rows, gridPages = new Set()) {
   return keep;
 }
 
-// The share of `words` whose centre lies inside one of `cells` (boxes with x, y, width, height). Cells found by the line detector on a
+// The share of `words` whose centre lies inside one of `cells` (boxes with x, y, width, height); a word the grid reader took from a cell
+// (it carries `cell`) is inside by construction. Cells found by the line detector on a
 // page read as text can be just a header's worth; the cell-by-cell reading is only right when they account for the words.
 function shareInsideCells(words, cells) {
   if (!words.length) return 1;
-  const inside = (w) => { const cx = (w.x + w.x1) / 2, cy = (w.y + w.y1) / 2; return cells.some(c => cx >= c.x && cx <= c.x + c.width && cy >= c.y && cy <= c.y + c.height); };
+  const inside = (w) => { if (w.cell) return true; const cx = (w.x + w.x1) / 2, cy = (w.y + w.y1) / 2; return cells.some(c => cx >= c.x && cx <= c.x + c.width && cy >= c.y && cy <= c.y + c.height); };
   return words.filter(inside).length / words.length;
 }
 

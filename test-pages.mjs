@@ -28,6 +28,7 @@ const tests = {
     assert.equal(shareInsideCells([w(5, 5), w(5, 25)], cells), 1);
     assert.equal(shareInsideCells([w(5, 5), w(5, 300), w(5, 400), w(5, 500)], cells), 0.25);   // a header's cells, the body below them uncovered
     assert.equal(shareInsideCells([], cells), 1);
+    assert.equal(shareInsideCells([{ ...w(5, 300), cell: { row: 1, col: 2 } }, w(5, 5)], cells), 1);   // a word the grid reader took from a cell is inside by construction
   },
 };
 
