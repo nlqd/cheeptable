@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Per-document pass rate from size/ab_tab_lane*.jsonl (the labelled table pages, read by size/ab_all.py --only).  run from hillclimb/:  size/ab_all_report.py [--pass 0.9] [--worst 40]
 A page passes when its character 3-gram F1 against the text layer (spaces ignored) is at least --pass. A document passes when every one of its pages does,
-so one bad page is enough to fail it. Pages with no scoreable layer (fewer than 15 words) are left out."""
+so one bad page is enough to fail it. Pages with no scoreable layer (fewer than 15 words) are left out, and so are pages whose layer
+is itself corrupt (an embedded bad OCR layer: "Pỉxụ llịc 2", stray backticks and capitals inside words); they are listed so they can be judged by the picture."""
 import collections, glob, json, re, statistics as st, sys, unicodedata, zlib
 
 import pypdfium2 as pdfium
@@ -16,11 +17,28 @@ bar, worst_n = opt("--pass", 0.9), opt("--worst", 40)
 # runs of leader dots, dashes and underscores (blank forms) are collapsed to one: they would otherwise outweigh the words
 squash = lambda s: re.sub(r"([.\-_·…])\1+", r"\1", re.sub(r"\s+", "", unicodedata.normalize("NFC", s).lower()))
 grams = lambda s: collections.Counter(s[i:i + 3] for i in range(len(s) - 2))
+# A text layer is trusted when at least this share of its words (three characters or more) is free of stray symbols and of a capital after a lower-case letter.
+# Measured on the 267 table pages read: 265 sit at 0.93 or higher, the two corrupt layers at 0.73 and 0.85.
+TRUST = 0.9
+stray = re.compile(r"[`\\^|<>{}\[\]~´¨›‹“”]|'(?=\w)")
+camel = lambda t: any(a.islower() and b.isupper() for a, b in zip(t, t[1:]))
 paths = {e["id"]: e["local_path"] for f in glob.glob("../benchmark/manifest3_t*.json") for e in json.load(open(f))}
 
 
+def layer_trust(text):
+    words = [w for w in unicodedata.normalize("NFC", text).split() if len(w) >= 3]
+    return 1.0 if not words else sum(not (stray.search(w) or camel(w)) for w in words) / len(words)
+
+
+untrusted = []
+
+
 def gram_f1(doc, page):
-    ref = squash(pdfium.PdfDocument(paths[doc])[page - 1].get_textpage().get_text_range())
+    raw = pdfium.PdfDocument(paths[doc])[page - 1].get_textpage().get_text_range()
+    if layer_trust(raw) < TRUST:
+        untrusted.append((doc, page))
+        return None
+    ref = squash(raw)
     got = squash("".join(str(c.get("value") if isinstance(c, dict) else c) for row in json.load(open(f"size/aball/{doc}_p{page}.student.json")) for c in row.get("cells", [])))
     if len(ref) < 20 or not got:
         return 0.0 if len(ref) >= 20 else None
@@ -52,6 +70,8 @@ if "--dev" in a:
 if "--test" in a:
     scored = {d: rs for d, rs in scored.items() if zlib.crc32(d.encode()) % 2 == 1}
 failed = [r for r in pages.values() if r["student_words"] is None]
+for d, p in untrusted:
+    print(f"reference layer corrupt, left out: {d} p{p}")
 print(f"pages read {len(pages)}  documents {len(docs)}  scoreable documents {len(scored)}  pages the app failed on {len(failed)}")
 
 page_f1 = [r["student_f1"] for rs in scored.values() for r in rs]
