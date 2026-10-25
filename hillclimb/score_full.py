@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Score every row of the contract sheet, not only the numbered ones.
-  score_full.py ROWS.json [--gt golden_v2.xlsx] [--worst 25]
+  score_full.py ROWS.json [--gt golden_v3.xlsx] [--worst 25]
 Golden rows and extracted rows are compared as text (cells joined, spaces ignored) and lined up in page order: a banded dynamic
 programme over row pairs, so a row that was cut in two, merged or invented does not shift everything after it. Per kind of golden row
 (heading, table header, section title, item, summary) it prints how many were found and the character error of the found ones;
@@ -102,7 +102,7 @@ def align(g, o):
 
 if __name__ == "__main__":
     a = sys.argv
-    gt = a[a.index("--gt") + 1] if "--gt" in a else "golden_v2.xlsx"
+    gt = a[a.index("--gt") + 1] if "--gt" in a else "golden_v3.xlsx"
     worst = int(a[a.index("--worst") + 1]) if "--worst" in a else 25
     G, O = golden(gt), extracted(a[1])
     pairs = align(G, O)
