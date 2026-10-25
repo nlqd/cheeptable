@@ -245,7 +245,7 @@ function textLayerLines(items, pageNum) {
 }
 
 // ── OCR Table Extraction ──
-async function ocrTableExtract(ocrLines, ocrWords, borderCells = []) {
+async function ocrTableExtract(ocrLines, ocrWords, borderCells = [], textItems = []) {
   const extractStart = performance.now();
 
   // Filter margin content (headers/footers in top/bottom 5%)
@@ -259,10 +259,14 @@ async function ocrTableExtract(ocrLines, ocrWords, borderCells = []) {
   // text. One file can hold both kinds, and a stray small box on a page of text must not decide for the whole file.
   const gridPages = new Set();
   for (const p of new Set(borderCells.map(c => c.page))) {
-    const n = borderCells.filter(c => c.page === p).length;
-    const share = shareInsideCells(ocrWords.filter(w => w.page === p), borderCells.filter(c => c.page === p));
+    const cellsOfPage = borderCells.filter(c => c.page === p);
+    const n = cellsOfPage.length;
+    // Only a text layer is an independent count of the words a grid must cover; a scanned page has none, so the grid is
+    // trusted (the noise check in pipeline.js already rejects a grid the recogniser is unsure of).
+    const pageText = textItems.filter(it => it.page === p);
+    const share = pageText.length >= 5 ? shareTextInsideCells(pageText, cellsOfPage) : 1;
     if (n < 20) log(`  Page ${p}: only ${n} cells in a grid, read as text instead`, 'warn');
-    else if (share < 0.8) log(`  Page ${p}: the grid's cells hold ${(100 * share).toFixed(0)}% of the words, read as text instead`, 'warn');
+    else if (share < 0.8) log(`  Page ${p}: the grid's cells hold ${(100 * share).toFixed(0)}% of the text layer, read as text instead`, 'warn');
     else gridPages.add(p);
   }
   const parts = [];

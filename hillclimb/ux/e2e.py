@@ -3,12 +3,15 @@
   e2e.py URL PDF OUT.json [--port 9333] [--mode guided] [--shots PREFIX] [--lang vi]
 Dumps the rows exactly as the engine delivered them (before the results view changes anything) so extraction can be compared
 with earlier runs, and optionally takes screenshots during and after the job."""
-import json, subprocess, sys, time
+import json, os, subprocess, sys, tempfile, time
 
 a = sys.argv
 url, pdf, out = a[1], a[2], a[3]
 opt = lambda k, d=None: a[a.index(k) + 1] if k in a else d
 port, mode, shots, lang = opt("--port", "9333"), opt("--mode", "guided"), opt("--shots"), opt("--lang", "vi")
+# rodney keeps its connection in $RODNEY_HOME/state.json; lanes on different ports need different homes, or four
+# parallel runs drive one browser and write each other's pages.
+os.environ.setdefault("RODNEY_HOME", os.path.join(tempfile.gettempdir(), "rodney-" + port))
 
 
 def rodney(*args, timeout=300):
@@ -17,6 +20,8 @@ def rodney(*args, timeout=300):
 
 
 rodney("connect", "localhost:" + port)
+if rodney("js", "1+1") != "2":
+    sys.exit("no browser on port %s (check the headless Chrome) — refusing to run against another port" % port)
 rodney("open", "about:blank")
 rodney("open", url)
 rodney("waitload")

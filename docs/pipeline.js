@@ -224,7 +224,7 @@ CT.runJob = async function (file) {
   }
   if (allOcrWords.length > 0) {
     log('OCR total: ' + allOcrWords.length + ' words across ' + ocrPageCount + ' pages', 'ok');
-    const read = await ocrTableExtract(allOcrLines, allOcrWords, allBorderCells);
+    const read = await ocrTableExtract(allOcrLines, allOcrWords, allBorderCells, allTextItems);
     // row numbers that count up and quantity x price = total only hold in a bill of quantities; on any other table they would rewrite true values
     const boq = looksLikeBoq(read);
     const seq = boq ? repairNumbering(read).fixed : 0;

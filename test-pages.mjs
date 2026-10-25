@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 
-const { tablePages, shareInsideCells } = createRequire(import.meta.url)('./docs/boq-pages.js');
+const { tablePages, shareTextInsideCells } = createRequire(import.meta.url)('./docs/boq-pages.js');
 const row = (page, ...cells) => ({ page, cells: cells.map(value => ({ value })) });
 const tests = {
   'a page of rows with several cells is a table'() {
@@ -22,13 +22,15 @@ const tests = {
     const rows = ['Điều 1.', 'Công bố'].map(t => row(3, t, ''));
     assert.deepEqual([...tablePages(rows, new Set([3]))], []);
   },
-  'the share of words whose centre lies inside some cell'() {
-    const cells = [{ x: 0, y: 0, width: 100, height: 20 }, { x: 0, y: 20, width: 100, height: 20 }];
-    const w = (x, y) => ({ x, y, x1: x + 10, y1: y + 6 });
-    assert.equal(shareInsideCells([w(5, 5), w(5, 25)], cells), 1);
-    assert.equal(shareInsideCells([w(5, 5), w(5, 300), w(5, 400), w(5, 500)], cells), 0.25);   // a header's cells, the body below them uncovered
-    assert.equal(shareInsideCells([], cells), 1);
-    assert.equal(shareInsideCells([{ ...w(5, 300), cell: { row: 1, col: 2 } }, w(5, 5)], cells), 1);   // a word the grid reader took from a cell is inside by construction
+  'text-layer coverage ignores the heading and a note, and counts a missed column'() {
+    const cells = [{ row: -1, x: 0, y: 0, width: 50, height: 10 },    // the heading cell above the table
+                   { row: 0, x: 0, y: 10, width: 100, height: 80 }];
+    const it = (x, y) => ({ x, y, width: 10, height: 8 });     // y is the baseline
+    // a heading word past the heading cell, the title, inside, a missed column, a note
+    const items = [it(200, 5), it(5, -5), it(5, 20), it(200, 20), it(5, 200)];
+    assert.equal(shareTextInsideCells(items, cells), 0.5);
+    assert.equal(shareTextInsideCells([], cells), 1);
+    assert.equal(shareTextInsideCells([it(5, 20)], []), 1);    // no grid cells: nothing to measure
   },
 };
 
