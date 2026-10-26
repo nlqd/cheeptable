@@ -8,7 +8,7 @@ before, after = sys.argv[1], sys.argv[2]
 paths = {e["id"]: e["local_path"] for f in glob.glob("../benchmark/manifest3_t*.json") for e in json.load(open(f))}
 squash = lambda s: re.sub(r"([.\-_·…])\1+", r"\1", re.sub(r"\s+", "", unicodedata.normalize("NFC", s).lower()))
 grams = lambda s: collections.Counter(s[i:i + 3] for i in range(len(s) - 2))
-pages = sorted({(json.loads(l)["id"], json.loads(l)["page"]) for f in glob.glob("size/ab_new/ab_tab_lane*.jsonl") for l in open(f)})
+pages = sorted({(json.loads(l)["id"], json.loads(l)["page"]) for f in glob.glob("size/ab_warm/ab_tab_lane*.jsonl") for l in open(f)})
 
 
 def score(d, doc, page, ref):

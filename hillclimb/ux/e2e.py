@@ -69,6 +69,7 @@ if shots:
     rodney("screenshot", shots + "-result.png")
 rows = rodney("js", "JSON.stringify(window.__rows)")
 open(out, "w").write(rows)
+open(out + ".log", "w").write(rodney("js", "(CT.logs || []).map(l => l.msg).join(String.fromCharCode(10))"))   # what the engine said about each page, for diagnosing
 ev = json.loads(rodney("js", "JSON.stringify(window.__ev)"))
 if ev:
     t0 = next((t for n, t in ev if n == 'job:begin'), ev[0][1])
