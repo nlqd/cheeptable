@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 
-const { gridClusters, gridTextBands, gridJointCount, gridRulesBelow, gridIsSideways, gridLineHeight, gridDespeckle, gridSplitWide, gridInkRuns, gridSplitTall, gridLinePitch, gridUnderSegmented, gridCells, gridPickColumns, gridIsRuleFragment, gridRuleShare, gridColumnLineHeights } = createRequire(import.meta.url)('./docs/boq-grid.js');
+const { gridClusters, gridTextBands, gridJointCount, gridRulesBelow, gridIsSideways, gridLineHeight, gridDespeckle, gridSplitWide, gridSplitWideAny, gridInkRuns, gridSplitTall, gridLinePitch, gridUnderSegmented, gridCells, gridPickColumns, gridIsRuleFragment, gridRuleShare, gridColumnLineHeights } = createRequire(import.meta.url)('./docs/boq-grid.js');
 
 const tests = {
   'a thick ruled line collapses to one position'() {
@@ -169,6 +169,12 @@ const tests = {
     assert.deepEqual(gridSplitWide(ink, [0, 92], 100), [[0, 92]]);
     assert.deepEqual(gridSplitWide(Array(100).fill(1), [0, 99], 30), [[0, 99]]);                  // no gap to cut at
     assert.deepEqual(gridSplitWide(ink, [0, 92], 60, 3), [[0, 92]]);                              // gaps of 1-2 columns are between letters
+  },
+  'dense print with narrow word gaps is cut at the next narrower gap, wide gaps still win first'() {
+    const ink = [...Array(40).fill(1), 0, 0, ...Array(40).fill(1), 0, ...Array(40).fill(1)];     // 123 wide, gaps of 2 and 1
+    assert.deepEqual(gridSplitWideAny(ink, [0, 122], 60, [3]), [[0, 122]]);                       // no gap that wide: left whole
+    assert.deepEqual(gridSplitWideAny(ink, [0, 122], 60, [2, 1]).length, 3);                      // the 2-wide gap is not enough, the 1-wide one finishes it
+    assert.deepEqual(gridSplitWideAny(ink, [0, 122], 200, [2, 1]), [[0, 122]]);                   // already narrow enough
   },
   'a ruled line crossed by the column rules is a row boundary, a page-edge shadow is not'() {
     const w = 20, h = 20, ver = new Uint8Array(w * h);

@@ -103,6 +103,17 @@ function gridSplitWide(colInk, run, maxW, minGap = 1) {
   return [...gridSplitWide(colInk, [left, best[0] - 1], maxW, minGap), ...gridSplitWide(colInk, [best[1] + 1, right], maxW, minGap)];
 }
 
+// gridSplitWide with the word gap it may cut at taken from `minGaps`, widest first: dense small print has word gaps narrower than a
+// quarter of the line height, so a line that stays too wide at the first gap is tried again at the next, down to the last.
+function gridSplitWideAny(colInk, run, maxW, minGaps) {
+  let pieces = [run];
+  for (const gap of minGaps) {
+    pieces = gridSplitWide(colInk, run, maxW, gap);
+    if (pieces.every(([l, r]) => r - l + 1 <= maxW)) break;
+  }
+  return pieces;
+}
+
 // A horizontal ruled line belongs to the table when vertical rules cross it (a joint). A page-edge shadow or an underline crosses none, so
 // it is not a row boundary: otherwise the whole heading above the table becomes one tall row, cut at the table's column lines.
 // `ver` is the vertical-rule mask (w x h, nonzero = rule); a joint is a rule within `reach` pixels of a column line at the height of the line.
@@ -390,13 +401,14 @@ function _cellLineBoxes(ctx, cell, f, lineH, scanned, splitGaps = false) {
     return [left, right];
   };
   // Only a band wider than it is tall can be several lines of text: a tall narrow band is sideways text and stays whole.
-  const pieces = bands.flatMap(([a, b]) => { const [l, r] = extent(a, b); return r - l + 1 >= 1.5 * (b - a) ? gridSplitTall([[a, b]], counts, lineH, 1.7, 0.3, Math.round(GRID_BAND_MIN_H * 1.5 * f)) : [[a, b]]; });
+  const pieces = bands.flatMap(([a, b]) => { const [l, r] = extent(a, b); return r - l + 1 >= 1.5 * (b - a) ? gridSplitTall([[a, b]], counts, lineH, 1.7, 0.3, Math.round(GRID_BAND_MIN_H * 1.0 * f)) : [[a, b]]; });
   return pieces.flatMap(([a, b]) => {
     const ink = colInk(a, b);
     // The recogniser sees a strip 32 high and at most 512 wide, so a line wider than about 16 times its height is squeezed past reading:
     // it is cut at its word gaps, in a heading wherever the ink breaks, in a cell only where the line is that long.
     const [left0, right0] = extent(a, b);
-    const spans = splitGaps ? gridInkRuns(ink, Math.round(2.5 * (b - a))).flatMap(run => gridSplitWide(ink, run, 16 * (b - a), Math.round(0.25 * (b - a)))) : left0 > right0 ? [] : gridSplitWide(ink, [left0, right0], 16 * (b - a), Math.round(0.25 * (b - a)));
+    const gapsFor = (h) => [Math.round(0.25 * h), Math.round(0.15 * h), Math.round(0.08 * h)].map(g => Math.max(2, g));
+    const spans = splitGaps ? gridInkRuns(ink, Math.round(2.5 * (b - a))).flatMap(run => gridSplitWideAny(ink, run, 16 * (b - a), gapsFor(b - a))) : left0 > right0 ? [] : gridSplitWideAny(ink, [left0, right0], 16 * (b - a), gapsFor(b - a));
     return spans.map(([left, right], i) => {
       if (gridIsRuleFragment(b - a, cell.height, right - left + 1)) return null;
       if (splitGaps && right - left + 1 < 0.6 * (b - a)) return null;          // a fold mark or a hole at the edge of the page, not a word
@@ -492,4 +504,4 @@ async function ocrPageWithGrid(canvas, pageNum, grid, withHeading = true) {
   return { words, lines: [], cells };
 }
 
-if (typeof module !== 'undefined') module.exports = { gridClusters, gridTextBands, gridJointCount, gridRulesBelow, gridIsSideways, gridLineHeight, gridLinePitch, gridDespeckle, gridSplitWide, gridInkRuns, gridSplitTall, gridCells, gridPickColumns, gridIsRuleFragment, gridRuleShare, gridMergeGroups, gridColumnLineHeights };
+if (typeof module !== 'undefined') module.exports = { gridClusters, gridTextBands, gridJointCount, gridRulesBelow, gridIsSideways, gridLineHeight, gridLinePitch, gridDespeckle, gridSplitWide, gridSplitWideAny, gridInkRuns, gridSplitTall, gridCells, gridPickColumns, gridIsRuleFragment, gridRuleShare, gridMergeGroups, gridColumnLineHeights };
