@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 
 const { tablePages, shareTextInsideCells } = createRequire(import.meta.url)('./docs/boq-pages.js');
-const { gridCellsToWordGrid } = createRequire(import.meta.url)('./docs/boq-extract.js');
+const { gridCellsToWordGrid, inPageBody } = createRequire(import.meta.url)('./docs/boq-extract.js');
 const row = (page, ...cells) => ({ page, cells: cells.map(value => ({ value })) });
 const tests = {
   'a page of rows with several cells is a table'() {
@@ -49,6 +49,11 @@ const tests = {
     assert.equal(shareTextInsideCells(items, cells), 0.5);
     assert.equal(shareTextInsideCells([], cells), 1);
     assert.equal(shareTextInsideCells([it(5, 20)], []), 1);    // no grid cells: nothing to measure
+  },
+  'the last row of a page whose text ends above the foot is kept'() {
+    assert.ok(inPageBody(1200, 1240, 1400));
+    assert.ok(!inPageBody(1350, 1395, 1400));    // a footer in the real last 5%
+    assert.ok(!inPageBody(10, 40, 1400));        // a running header
   },
 };
 

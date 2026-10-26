@@ -91,7 +91,7 @@ CT.runJob = async function (file) {
   log('PDF loaded: ' + numPages + ' pages', 'ok');
 
   const allTextItems = [], allLines = [], textPages = [];
-  const allOcrWords = [], allOcrLines = [], allBorderCells = [];
+  const allOcrWords = [], allOcrLines = [], allBorderCells = [], pageSizes = {};
   let poolReady = null;
   let headingRead = false;           // the heading above the table is read on the first table page only
   const gridPages = new Set();       // pages in which a ruled grid was found and read
@@ -133,6 +133,7 @@ CT.runJob = async function (file) {
       CT.emit('page:status', { page: p, status: 'render' });
       await CT.frame();
       const canvas = await renderPageToCanvas(page, OCR_SCALE);
+      pageSizes[p] = canvas.height / OCR_SCALE;
       CT.emit('page:render', { page: p, thumb: thumbOf(canvas), width: canvas.width, height: canvas.height });
       canvas.toBlob(b => { if (b) { CT.state.pages[p] = { url: URL.createObjectURL(b), width: canvas.width, height: canvas.height }; CT.emit('page:image', { page: p }); } }, 'image/jpeg', 0.75);
 
@@ -224,7 +225,7 @@ CT.runJob = async function (file) {
   }
   if (allOcrWords.length > 0) {
     log('OCR total: ' + allOcrWords.length + ' words across ' + ocrPageCount + ' pages', 'ok');
-    const read = await ocrTableExtract(allOcrLines, allOcrWords, allBorderCells, allTextItems);
+    const read = await ocrTableExtract(allOcrLines, allOcrWords, allBorderCells, allTextItems, pageSizes);
     // row numbers that count up and quantity x price = total only hold in a bill of quantities; on any other table they would rewrite true values
     const boq = looksLikeBoq(read);
     const seq = boq ? repairNumbering(read).fixed : 0;

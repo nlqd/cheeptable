@@ -48,7 +48,7 @@ if have != list(want.values()):
     rodney("waitload")
     wait_ready()
 rodney("js", "(window.alert = () => {}, window.__errors = [], window.addEventListener('error', e => window.__errors.push(String(e.message))), window.addEventListener('unhandledrejection', e => window.__errors.push(String(e.reason))), 1)")
-rodney("js", "(CT.on('job:done', d => { window.__rows = d.rows; }), window.__ev = [], CT.emit = ((orig) => (t, d) => { window.__ev.push([t, performance.now()]); return orig(t, d); })(CT.emit), 1)")
+rodney("js", "(CT.on('job:done', d => { window.__rows = d.rows; }), window.__ev = [], window.__reads = [], CT.emit = ((orig) => (t, d) => { window.__ev.push([t, performance.now()]); if (t === 'read') window.__reads.push({text: d.text, conf: d.conf, box: d.box}); return orig(t, d); })(CT.emit), 1)")
 t0 = time.time()
 rodney("file", "#fileInput", pdf)
 shot_at = [3, 12, 25]
@@ -70,6 +70,8 @@ if shots:
 rows = rodney("js", "JSON.stringify(window.__rows)")
 open(out, "w").write(rows)
 open(out + ".log", "w").write(rodney("js", "(CT.logs || []).map(l => l.msg).join(String.fromCharCode(10))"))   # what the engine said about each page, for diagnosing
+if opt("--reads"):                                  # every box the recogniser read, with its confidence: what was seen and what was dropped
+    open(opt("--reads"), "w").write(rodney("js", "JSON.stringify(window.__reads)"))
 ev = json.loads(rodney("js", "JSON.stringify(window.__ev)"))
 if ev:
     t0 = next((t for n, t in ev if n == 'job:begin'), ev[0][1])

@@ -245,13 +245,16 @@ function textLayerLines(items, pageNum) {
 }
 
 // ── OCR Table Extraction ──
-async function ocrTableExtract(ocrLines, ocrWords, borderCells = [], textItems = []) {
+const inPageBody = (top, bottom, pageHeight) => top > pageHeight * 0.05 && bottom < pageHeight * 0.95;
+
+async function ocrTableExtract(ocrLines, ocrWords, borderCells = [], textItems = [], pageSizes = {}) {
   const extractStart = performance.now();
 
-  // Filter margin content (headers/footers in top/bottom 5%)
+  // Headers and footers (the top and bottom 5% of the page) are left out. The page height is the page's, not the lowest word's:
+  // measured from the words, the last row of every page whose text ends above the foot was taken for a footer.
   const pageHeights = {};
   ocrWords.forEach(w => {
-    pageHeights[w.page] = Math.max(pageHeights[w.page] || 0, w.y1);
+    pageHeights[w.page] = pageSizes[w.page] || Math.max(pageHeights[w.page] || 0, w.y1);
   });
 
 
@@ -283,8 +286,7 @@ async function ocrTableExtract(ocrLines, ocrWords, borderCells = [], textItems =
 // Rows from the positions of OCR lines and words (no drawn grid).
 async function textBasedExtract(ocrLines, ocrWords, pageHeights) {
   const filteredLines = ocrLines.filter(l => {
-    const ph = pageHeights[l.page] || 800;
-    return l.y > ph * 0.05 && l.y1 < ph * 0.95;
+    return inPageBody(l.y, l.y1, pageHeights[l.page] || 800);
   });
 
   // Check if pipe characters are prevalent (table borders recognized as |)
@@ -306,8 +308,7 @@ async function textBasedExtract(ocrLines, ocrWords, pageHeights) {
   // Fallback: spatial word-position analysis
   log('Using SPATIAL parsing (word positions)', 'ok');
   const filteredWords = ocrWords.filter(w => {
-    const ph = pageHeights[w.page] || 800;
-    return w.y > ph * 0.05 && w.y1 < ph * 0.95;
+    return inPageBody(w.y, w.y1, pageHeights[w.page] || 800);
   });
   return await spatialExtract(filteredLines, filteredWords);
 }
@@ -1064,4 +1065,4 @@ function mergeMultiLineCells(rows, numCols) {
 }
 
 
-if (typeof module !== "undefined") module.exports = { gridCellsToWordGrid };
+if (typeof module !== "undefined") module.exports = { gridCellsToWordGrid, inPageBody };
