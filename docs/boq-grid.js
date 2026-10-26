@@ -137,6 +137,14 @@ function gridIsSideways(w, h) {
   return h >= 2 * w && h >= 24;
 }
 
+// A column whose cells all hold two tight lines has no single line to measure: its bands are all double height, so its own estimate is
+// twice the true one and the splitter leaves them whole. The lines of a page share one type size more often than not, so a column's
+// estimate is capped at the smallest on the page; the pitch check in gridSplitTall still decides whether a band really is several lines.
+function gridColumnLineHeights(own) {
+  const smallest = Math.min(Infinity, ...[...own.values()].filter(h => h > 0));
+  return new Map([...own].map(([col, h]) => [col, h > 0 ? Math.min(h, smallest) : h]));
+}
+
 // A low estimate of the height of one line in a column, from the heights of its bands: the lower quartile, which merged strips
 // (tight lines whose accents touch, read as one band) cannot inflate. It only says which bands are worth measuring; whether a band is
 // several lines, and at what pitch, is decided by gridLinePitch.
@@ -428,7 +436,7 @@ async function ocrPageWithGrid(canvas, pageNum, grid, withHeading = true) {
     if (!cells[i].heading && !cells[i].colspan) byCol.set(cells[i].col, [...(byCol.get(cells[i].col) || []), sc.bands.map(([a, b]) => b - a)]);
     if (i % 20 === 0) await yieldToMain();
   }
-  const lineH = new Map([...byCol].map(([col, bands]) => [col, gridLineHeight(bands)]));
+  const lineH = gridColumnLineHeights(new Map([...byCol].map(([col, bands]) => [col, gridLineHeight(bands)])));
   // the heading is not in a column: it is set in a larger face than a column of figures, so it takes the tallest line of any column
   const headingLineH = Math.max(0, ...lineH.values());
 
@@ -481,4 +489,4 @@ async function ocrPageWithGrid(canvas, pageNum, grid, withHeading = true) {
   return { words, lines: [], cells };
 }
 
-if (typeof module !== 'undefined') module.exports = { gridClusters, gridTextBands, gridJointCount, gridRulesBelow, gridIsSideways, gridLineHeight, gridLinePitch, gridDespeckle, gridSplitWide, gridInkRuns, gridSplitTall, gridCells, gridPickColumns, gridIsRuleFragment, gridRuleShare, gridMergeGroups };
+if (typeof module !== 'undefined') module.exports = { gridClusters, gridTextBands, gridJointCount, gridRulesBelow, gridIsSideways, gridLineHeight, gridLinePitch, gridDespeckle, gridSplitWide, gridInkRuns, gridSplitTall, gridCells, gridPickColumns, gridIsRuleFragment, gridRuleShare, gridMergeGroups, gridColumnLineHeights };

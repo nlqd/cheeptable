@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 
-const { gridClusters, gridTextBands, gridJointCount, gridRulesBelow, gridIsSideways, gridLineHeight, gridDespeckle, gridSplitWide, gridInkRuns, gridSplitTall, gridLinePitch, gridUnderSegmented, gridCells, gridPickColumns, gridIsRuleFragment, gridRuleShare } = createRequire(import.meta.url)('./docs/boq-grid.js');
+const { gridClusters, gridTextBands, gridJointCount, gridRulesBelow, gridIsSideways, gridLineHeight, gridDespeckle, gridSplitWide, gridInkRuns, gridSplitTall, gridLinePitch, gridUnderSegmented, gridCells, gridPickColumns, gridIsRuleFragment, gridRuleShare, gridColumnLineHeights } = createRequire(import.meta.url)('./docs/boq-grid.js');
 
 const tests = {
   'a thick ruled line collapses to one position'() {
@@ -52,6 +52,17 @@ const tests = {
   },
   'without a line height nothing is split'() {
     assert.deepEqual(gridSplitTall([[0, 40]], new Array(40).fill(5), 0), [[0, 40]]);
+  },
+  'a column whose cells are all two lines takes its line height from the page, not from its own double-height bands'() {
+    const own = new Map([[0, 15], [1, 36], [2, 16], [3, 0]]);            // column 1: two lines of 18 in every cell; column 3 has no text
+    const capped = gridColumnLineHeights(own);
+    assert.equal(capped.get(1), 15);
+    assert.equal(capped.get(0), 15);
+    assert.equal(capped.get(3), 0);                                      // nothing to read in it, nothing to split
+  },
+  'a page of one column keeps its own estimate'() {
+    assert.equal(gridColumnLineHeights(new Map([[0, 30]])).get(0), 30);
+    assert.equal(gridColumnLineHeights(new Map()).size, 0);
   },
   'a speck is not a text line'() {
     const ink = [0, 0, 1, 1, 0, 0, 0, 0, 0, 0].map(Boolean);
