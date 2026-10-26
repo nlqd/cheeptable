@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 
-const { gridClusters, gridTextBands, gridJointCount, gridRulesBelow, gridIsSideways, gridLineHeight, gridDespeckle, gridSplitWide, gridInkRuns, gridSplitTall, gridLinePitch, gridUnderSegmented, gridCells, gridPickColumns, gridIsRuleFragment } = createRequire(import.meta.url)('./docs/boq-grid.js');
+const { gridClusters, gridTextBands, gridJointCount, gridRulesBelow, gridIsSideways, gridLineHeight, gridDespeckle, gridSplitWide, gridInkRuns, gridSplitTall, gridLinePitch, gridUnderSegmented, gridCells, gridPickColumns, gridIsRuleFragment, gridRuleShare } = createRequire(import.meta.url)('./docs/boq-grid.js');
 
 const tests = {
   'a thick ruled line collapses to one position'() {
@@ -60,6 +60,12 @@ const tests = {
     assert.equal(gridUnderSegmented(crowded), 1);
     assert.equal(gridUnderSegmented(wrapped), 0);
   },
+  'lines inside cells merged across rows are one cell each, so they never make a grid look crowded'() {
+    const words = (tall) => [0, 1, 2].flatMap(col => [0, 1, 2].map(() => ({ cell: { row: 0, col, tall } })));
+    assert.equal(gridUnderSegmented(words(false)), 1);
+    assert.equal(gridUnderSegmented(words(true)), 0);
+    assert.equal(gridUnderSegmented([...words(true), { cell: { row: 1, col: 0 } }]), 0);
+  },
   'a speck is not a text line'() {
     const ink = [0, 0, 1, 1, 0, 0, 0, 0, 0, 0].map(Boolean);
     assert.deepEqual(gridTextBands(ink, 3, 6), []);
@@ -74,6 +80,43 @@ const tests = {
   },
   'a table of dense small print is read: rows 15 reference pixels apart still hold a line of text'() {
     assert.equal(gridCells([0, 100, 200], [0, 30, 60], 2).length, 4);              // 2 columns x 2 rows, at twice the reference width
+  },
+  'a rule drawn only part of the way is measured by the share of its length that carries ink'() {
+    const w = 20, h = 20, ink = new Uint8Array(w * h);
+    for (let y = 0; y < 10; y++) ink[y * w + 5] = 255;                  // a vertical rule at x = 5, rows 0 to 9
+    assert.equal(gridRuleShare(ink, w, h, 5, 0, 20, true, 1), 0.5);       // the first half of a 20-row stretch
+    assert.equal(gridRuleShare(ink, w, h, 6, 0, 10, true, 1), 1);         // a tilted scan: within reach of the line
+    assert.equal(gridRuleShare(ink, w, h, 12, 0, 20, true, 1), 0);
+    const hor = new Uint8Array(w * h);
+    for (let x = 4; x < 16; x++) hor[8 * w + x] = 255;                  // a horizontal rule at y = 8, columns 4 to 15
+    assert.equal(gridRuleShare(hor, w, h, 8, 4, 16, false, 1), 1);
+  },
+  'cells with no rule between them are one cell: a banner row spans the columns, a tall cell spans the rows'() {
+    const xs = [0, 100, 200, 300], ys = [0, 40, 80, 120];
+    const all = (n, m, v) => Array.from({ length: n }, () => new Array(m).fill(v));
+    const v = all(3, 4, 1), hh = all(4, 3, 1);
+    v[1][1] = 0; v[1][2] = 0;                                      // no column rules in row 1: its three cells are one banner
+    hh[3][0] = 1;
+    const cells = gridCells(xs, ys, 1, { v, h: hh });
+    const banner = cells.find(c => c.row === 1);
+    assert.deepEqual([banner.col, banner.colspan, banner.x, banner.width], [0, 3, 3, 295]);
+    assert.equal(cells.length, 7);                                 // 3 + 1 + 3
+    const tall = gridCells(xs, ys, 1, { v: all(3, 4, 1), h: (() => { const g = all(4, 3, 1); g[1][2] = 0; return g; })() });
+    const spanned = tall.find(c => c.col === 2 && c.row === 0);
+    assert.deepEqual([spanned.rowspan, spanned.y, spanned.height], [2, 3, 75]);
+    assert.equal(tall.some(c => c.col === 2 && c.row === 1), false);   // swallowed by the cell above it
+  },
+  'an L-shaped run of missing rules is not merged: only a rectangle is one cell'() {
+    const xs = [0, 100, 200], ys = [0, 40, 80];
+    const all = (n, m, v) => Array.from({ length: n }, () => new Array(m).fill(v));
+    const v = all(2, 3, 1), hh = all(3, 2, 1);
+    v[0][1] = 0; hh[1][0] = 0;                                      // (0,0)-(0,1) and (0,0)-(1,0) joined: three cells, not a rectangle
+    assert.equal(gridCells(xs, ys, 1, { v, h: hh }).length, 4);
+  },
+  'when most rules are missing the page is not trusted to merge: faint rules are not banners'() {
+    const xs = [0, 100, 200, 300], ys = [0, 40, 80, 120];
+    const none = (n, m) => Array.from({ length: n }, () => new Array(m).fill(0));
+    assert.equal(gridCells(xs, ys, 1, { v: none(3, 4), h: none(4, 3) }).length, 9);
   },
   'a tall narrow box holds sideways text, a short or wide one does not'() {
     assert.equal(gridIsSideways(14, 90), true);               // a column heading written upwards

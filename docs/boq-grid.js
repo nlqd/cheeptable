@@ -169,7 +169,8 @@ function gridLinePitch(counts, a, b, minLag, agree = 0.5) {
 // height on the page; `counts` is the ink per row of the cell.
 // Share of the words that sit in grid rows holding several table rows each (the median cell of the row has three or more lines). A grid
 // like that is one whose horizontal rules were mostly missed, and its rows cannot be trusted (see gridCellsToWordGrid in boq-extract.js).
-function gridUnderSegmented(words) {
+function gridUnderSegmented(all) {
+  const words = all.filter(w => !w.cell.tall);        // the lines of a cell merged across rows are one cell's text
   const rows = new Map();
   for (const w of words) {
     const cols = rows.get(w.cell.row) || new Map();
@@ -227,17 +228,70 @@ function gridPickColumns(mass, f, rel = 0.4) {
 // A ruled-line fragment left in a cell: ink that spans the whole cell height but is narrow. Real text never fills it.
 const gridIsRuleFragment = (bandH, cellH, inkW) => bandH >= 0.9 * cellH && inkW < 0.5 * bandH;
 
-// Cell rectangles between consecutive ruled lines, inset so the lines themselves stay out of the crop.
-function gridCells(xs, ys, f) {
+// The share of a ruled line's length that carries ink. `mask` is a w x h rule mask (nonzero = rule); the line sits at `at` (x for a vertical
+// line, y for a horizontal one) and is measured from `from` to `to` along its length, within `reach` pixels of `at` for a tilted scan.
+function gridRuleShare(mask, w, h, at, from, to, vertical, reach) {
+  let hits = 0;
+  for (let p = Math.max(0, from); p < Math.min(vertical ? h : w, to); p++) {
+    for (let d = at - reach; d <= at + reach; d++) {
+      const x = vertical ? d : p, y = vertical ? p : d;
+      if (x >= 0 && x < w && y >= 0 && y < h && mask[y * w + x]) { hits++; break; }
+    }
+  }
+  return to > from ? hits / (to - from) : 0;
+}
+
+// A rule counts as drawn when at least this share of the edge carries ink. A banner row has no column rule through it at all, a tall
+// cell no row rule beneath its text; a faint rule on a scan is still most of the way there.
+const GRID_RULE_ABSENT = 0.2;
+// When more than this share of the page's inner edges look undrawn, the rules are faint and not a merged-cell layout: nothing is merged.
+const GRID_MERGE_MAX_ABSENT = 0.4;
+
+// Which cells are one: cells with no drawn rule between them. `rules.v[r][c]` is the share drawn of column line c within row r,
+// `rules.h[r][c]` the share drawn of row line r across column c. Returns a group number per cell, or null to leave every cell alone.
+function gridMergeGroups(rows, cols, rules) {
+  if (!rules || rows < 1 || cols < 1) return null;
+  const parent = Array.from({ length: rows * cols }, (_, i) => i);
+  const find = (i) => { while (parent[i] !== i) { parent[i] = parent[parent[i]]; i = parent[i]; } return i; };
+  let edges = 0, absent = 0;
+  const join = (a, b) => { parent[find(a)] = find(b); };
+  for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) {
+    if (c + 1 < cols) { edges++; if (rules.v[r][c + 1] < GRID_RULE_ABSENT) { absent++; join(r * cols + c, r * cols + c + 1); } }
+    if (r + 1 < rows) { edges++; if (rules.h[r + 1][c] < GRID_RULE_ABSENT) { absent++; join(r * cols + c, (r + 1) * cols + c); } }
+  }
+  if (!absent || absent > GRID_MERGE_MAX_ABSENT * edges) return null;
+  // only a rectangle is one cell: a bent run of missing rules would swallow a neighbour, so its members stay single
+  const members = new Map();
+  for (let i = 0; i < rows * cols; i++) members.set(find(i), [...(members.get(find(i)) || []), i]);
+  const group = new Array(rows * cols);
+  members.forEach((ids) => {
+    const rs = ids.map(i => Math.floor(i / cols)), cs = ids.map(i => i % cols);
+    const full = (Math.max(...rs) - Math.min(...rs) + 1) * (Math.max(...cs) - Math.min(...cs) + 1) === ids.length;
+    ids.forEach(i => { group[i] = full ? ids[0] : i; });
+  });
+  return group;
+}
+
+// Cell rectangles between consecutive ruled lines, inset so the lines themselves stay out of the crop. With `rules` (see gridMergeGroups)
+// cells that have no rule between them are one rectangle, filed under the row and column of its top left corner.
+function gridCells(xs, ys, f, rules = null) {
   const inL = Math.round(3 * f), inR = Math.round(2 * f);
+  const rows = ys.length - 1, cols = xs.length - 1;
+  const group = gridMergeGroups(rows, cols, rules);
   const cells = [];
-  for (let r = 0; r < ys.length - 1; r++) {
-    const y0 = ys[r] + inL, y1 = ys[r + 1] - inR;
-    if (y1 - y0 < GRID_BAND_MIN_H * f) continue;     // shorter than the shortest ink run that counts as a line of text
-    for (let c = 0; c < xs.length - 1; c++) {
-      const x0 = xs[c] + inL, x1 = xs[c + 1] - inR;
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      if (group && group[r * cols + c] !== r * cols + c) continue;           // swallowed by the cell it belongs to
+      let r1 = r, c1 = c;
+      if (group) for (let i = 0; i < rows * cols; i++) if (group[i] === r * cols + c) { r1 = Math.max(r1, Math.floor(i / cols)); c1 = Math.max(c1, i % cols); }
+      const y0 = ys[r] + inL, y1 = ys[r1 + 1] - inR;
+      if (y1 - y0 < GRID_BAND_MIN_H * f) continue;     // shorter than the shortest ink run that counts as a line of text
+      const x0 = xs[c] + inL, x1 = xs[c1 + 1] - inR;
       if (x1 - x0 < 8 * f) continue;
-      cells.push({ row: r, col: c, x: x0, y: y0, width: x1 - x0, height: y1 - y0, area: (x1 - x0) * (y1 - y0) });
+      const cell = { row: r, col: c, x: x0, y: y0, width: x1 - x0, height: y1 - y0, area: (x1 - x0) * (y1 - y0) };
+      if (r1 > r) cell.rowspan = r1 - r + 1;
+      if (c1 > c) cell.colspan = c1 - c + 1;
+      cells.push(cell);
     }
   }
   return cells;
@@ -272,6 +326,9 @@ async function findGrid(canvas) {
     const hor = keep(new cv.Mat()), ver = keep(new cv.Mat());
     cv.morphologyEx(bw, hor, cv.MORPH_OPEN, keep(cv.getStructuringElement(cv.MORPH_RECT, new cv.Size(Math.floor(w / 8), 1))));
     cv.morphologyEx(bw, ver, cv.MORPH_OPEN, keep(cv.getStructuringElement(cv.MORPH_RECT, new cv.Size(1, Math.round(30 * f)))));
+    // rule shares per edge are read from a mask of short horizontal runs: a rule only as wide as a narrow column must still count
+    const horShort = keep(new cv.Mat());
+    cv.morphologyEx(bw, horShort, cv.MORPH_OPEN, keep(cv.getStructuringElement(cv.MORPH_RECT, new cv.Size(Math.max(8, Math.floor(w / 40)), 1))));
     const rowSum = keep(new cv.Mat()), colSum = keep(new cv.Mat());
     cv.reduce(hor, rowSum, 1, cv.REDUCE_SUM, cv.CV_32S);
     cv.reduce(ver, colSum, 0, cv.REDUCE_SUM, cv.CV_32S);
@@ -285,7 +342,11 @@ async function findGrid(canvas) {
     const ys = ysSrc.map(y => Math.round(y / k));
     const xs = xsSrc.map(x => Math.round(x / k));
     // a few boxes on a page of text are not a table: the extractor wants at least 20 cells, so a smaller grid is not used
-    return xs.length >= 3 && ys.length >= 3 && (xs.length - 1) * (ys.length - 1) >= 20 ? { xs, ys, f: full } : null;
+    if (!(xs.length >= 3 && ys.length >= 3 && (xs.length - 1) * (ys.length - 1) >= 20)) return null;
+    // which rules are drawn between neighbouring cells, so a banner or a tall cell is read whole, not cut at lines that are not there
+    const v = ysSrc.slice(0, -1).map((y, r) => xsSrc.map(x => gridRuleShare(ver.data, w, h, x, y + reach + 1, ysSrc[r + 1] - reach, true, reach)));
+    const hh = ysSrc.map(y => xsSrc.slice(0, -1).map((x, c) => gridRuleShare(horShort.data, w, h, y, x + reach + 1, xsSrc[c + 1] - reach, false, reach)));
+    return { xs, ys, f: full, rules: { v, h: hh } };
   } finally {
     mats.forEach(m => m.delete());
   }
@@ -348,7 +409,7 @@ async function ocrPageWithGrid(canvas, pageNum, grid, withHeading = true) {
   perfStart(`Grid OCR page ${pageNum}`);
   const s = OCR_SCALE;
   const ctx = canvas.getContext('2d', { willReadFrequently: true });
-  const cells = gridCells(grid.xs, grid.ys, grid.f);
+  const cells = gridCells(grid.xs, grid.ys, grid.f, grid.rules);
   const words = [];
 
   // The heading above the table (title, contract number, project) is not in any grid row: it is read as lines across the page and
@@ -369,7 +430,7 @@ async function ocrPageWithGrid(canvas, pageNum, grid, withHeading = true) {
   for (let i = 0; i < cells.length; i++) {
     const sc = _cellBands(ctx, cropOf(cells[i]), grid.f);
     scans.push(sc);
-    if (!cells[i].heading) byCol.set(cells[i].col, [...(byCol.get(cells[i].col) || []), sc.bands.map(([a, b]) => b - a)]);
+    if (!cells[i].heading && !cells[i].colspan) byCol.set(cells[i].col, [...(byCol.get(cells[i].col) || []), sc.bands.map(([a, b]) => b - a)]);
     if (i % 20 === 0) await yieldToMain();
   }
   const lineH = new Map([...byCol].map(([col, bands]) => [col, gridLineHeight(bands)]));
@@ -378,7 +439,7 @@ async function ocrPageWithGrid(canvas, pageNum, grid, withHeading = true) {
 
   const items = [];
   for (let i = 0; i < cells.length; i++) {
-    for (const box of _cellLineBoxes(ctx, cropOf(cells[i]), grid.f, cells[i].heading ? headingLineH : lineH.get(cells[i].col), scans[i], !!cells[i].heading)) {
+    for (const box of _cellLineBoxes(ctx, cropOf(cells[i]), grid.f, cells[i].heading ? headingLineH : lineH.get(cells[i].col) ?? headingLineH, scans[i], !!cells[i].heading)) {
       if (box.x1 - box.x0 >= 5 && box.y1 - box.y0 >= 5) items.push({ box, cell: cells[i] });
     }
     scans[i] = null;
@@ -416,7 +477,7 @@ async function ocrPageWithGrid(canvas, pageNum, grid, withHeading = true) {
       confidence: reads[i].confidence * 100,
       src: _NUMERIC_RE.test(text) ? 'onnx-num' : 'onnx-viet',
       page: pageNum,
-      cell: { row: cell.row, col: cell.col },
+      cell: { row: cell.row, col: cell.col, tall: cell.rowspan > 1 },
     });
   });
 
@@ -425,4 +486,4 @@ async function ocrPageWithGrid(canvas, pageNum, grid, withHeading = true) {
   return { words, lines: [], cells };
 }
 
-if (typeof module !== 'undefined') module.exports = { gridClusters, gridTextBands, gridJointCount, gridRulesBelow, gridIsSideways, gridLineHeight, gridLinePitch, gridDespeckle, gridSplitWide, gridInkRuns, gridSplitTall, gridUnderSegmented, gridCells, gridPickColumns, gridIsRuleFragment };
+if (typeof module !== 'undefined') module.exports = { gridClusters, gridTextBands, gridJointCount, gridRulesBelow, gridIsSideways, gridLineHeight, gridLinePitch, gridDespeckle, gridSplitWide, gridInkRuns, gridSplitTall, gridUnderSegmented, gridCells, gridPickColumns, gridIsRuleFragment, gridRuleShare, gridMergeGroups };

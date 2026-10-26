@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 
 const { tablePages, shareTextInsideCells } = createRequire(import.meta.url)('./docs/boq-pages.js');
+const { gridCellsToWordGrid } = createRequire(import.meta.url)('./docs/boq-extract.js');
 const row = (page, ...cells) => ({ page, cells: cells.map(value => ({ value })) });
 const tests = {
   'a page of rows with several cells is a table'() {
@@ -21,6 +22,18 @@ const tests = {
   'a drawn grid does not keep a page that came out as one cell per line'() {
     const rows = ['Điều 1.', 'Công bố'].map(t => row(3, t, ''));
     assert.deepEqual([...tablePages(rows, new Set([3]))], []);
+  },
+  'the lines of cells merged across rows stay in one row, however many they are'() {
+    const cells = [0, 1, 2].map(col => ({ row: 0, col, x: col * 100, y: 0, width: 90, height: 200, rowspan: 4 }));
+    const words = [0, 1, 2].flatMap(col => [0, 1, 2].map(i => ({ text: `c${col}l${i}`, x: col * 100, y: i * 20, x1: col * 100 + 50, y1: i * 20 + 12, confidence: 90, cell: { row: 0, col, tall: true } })));
+    const { grid, numRows } = gridCellsToWordGrid(words, cells);
+    assert.equal(numRows, 1);
+    assert.equal(grid[0][1].text, 'c1l0 c1l1 c1l2');
+  },
+  'the same lines in cells that are not merged still cut a row that holds several table rows'() {
+    const cells = [0, 1, 2].map(col => ({ row: 0, col, x: col * 100, y: 0, width: 90, height: 200 }));
+    const words = [0, 1, 2].flatMap(col => [0, 1, 2].map(i => ({ text: `c${col}l${i}`, x: col * 100, y: i * 40, x1: col * 100 + 50, y1: i * 40 + 12, confidence: 90, cell: { row: 0, col } })));
+    assert.equal(gridCellsToWordGrid(words, cells).numRows, 3);
   },
   'text-layer coverage ignores the heading and a note, and counts a missed column'() {
     const cells = [{ row: -1, x: 0, y: 0, width: 50, height: 10 },    // the heading cell above the table

@@ -186,7 +186,7 @@ CT.runJob = async function (file) {
         if (borderData && borderData.cells.length > 0) {
           allBorderCells.push(...borderData.cells.map(cell => ({
             x: cell.x / OCR_SCALE, y: cell.y / OCR_SCALE, width: cell.width / OCR_SCALE, height: cell.height / OCR_SCALE,
-            area: cell.area / (OCR_SCALE * OCR_SCALE), row: cell.row, col: cell.col, page: p,
+            area: cell.area / (OCR_SCALE * OCR_SCALE), row: cell.row, col: cell.col, rowspan: cell.rowspan, colspan: cell.colspan, page: p,
           })));
         }
         CT.emit('page:done', { page: p, kind: grid ? 'grid' : 'detector', words: pageWords.length });

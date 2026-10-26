@@ -260,7 +260,8 @@ async function ocrTableExtract(ocrLines, ocrWords, borderCells = [], textItems =
   const gridPages = new Set();
   for (const p of new Set(borderCells.map(c => c.page))) {
     const cellsOfPage = borderCells.filter(c => c.page === p);
-    const n = cellsOfPage.length;
+    // a merged cell still stands for the grid positions it covers: a banner row must not turn a real table into "a few boxes"
+    const n = cellsOfPage.reduce((sum, c) => sum + (c.rowspan || 1) * (c.colspan || 1), 0);
     // Only a text layer is an independent count of the words a grid must cover; a scanned page has none, so the grid is
     // trusted (the noise check in pipeline.js already rejects a grid the recogniser is unsure of).
     const pageText = textItems.filter(it => it.page === p);
@@ -501,7 +502,9 @@ function gridCellsToWordGrid(pageWords, pageCells) {
   for (const w of pageWords) byRow.set(w.cell.row, [...(byRow.get(w.cell.row) || []), w]);
   const band = new Map();                                          // word -> band number inside its grid row
   const bandsOf = new Map();
-  for (const [row, ws] of byRow) {
+  for (const [row, allWords] of byRow) {
+    // the lines of a cell merged across rows are one cell's text: they stay in the row's first band and do not decide how it is cut
+    const ws = allWords.filter(w => !w.cell.tall);
     const perCell = new Map();
     ws.forEach(w => perCell.set(w.cell.col, (perCell.get(w.cell.col) || 0) + 1));
     const counts = [...perCell.values()].sort((p, q) => p - q);
@@ -1056,3 +1059,5 @@ function mergeMultiLineCells(rows, numCols) {
   return merged;
 }
 
+
+if (typeof module !== "undefined") module.exports = { gridCellsToWordGrid };
