@@ -15,7 +15,7 @@ labcache = opt("--labcache", "")                   # a tag: reads of unchanged c
 tags = opt("--tags", "")                           # e.g. t11,t12: only these manifests, every document
 port = 9340 + lane
 BASE = "http://localhost:8080"
-MODELS = {"student": BASE + "/hillclimb/size/hosted"}
+MODELS = {"student": BASE + "/hillclimb/size/" + opt("--hosted", "hosted")}   # --hosted DIR: another staged copy of the models
 
 norm = lambda s: unicodedata.normalize("NFC", s).lower()
 words = lambda s: [w for w in re.split(r"\s+", norm(s)) if w]

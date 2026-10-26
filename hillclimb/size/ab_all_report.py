@@ -15,7 +15,9 @@ bar, worst_n = opt("--pass", 0.9), opt("--worst", 40)
 # Page score: F1 of the character 3-grams of the page's text with all spaces removed. Some PDFs space their glyphs apart
 # ("1 5 0 4 3", "Q U AN G"), which makes any word-level comparison against the text layer meaningless; this ignores spacing.
 # runs of leader dots, dashes and underscores (blank forms) are collapsed to one: they would otherwise outweigh the words
-squash = lambda s: re.sub(r"([.\-_·…])\1+", r"\1", re.sub(r"\s+", "", unicodedata.normalize("NFC", s).lower()))
+# Some fonts map one glyph onto a look-alike code point (Ƣ/ƣ for Ư/ư, the diameter sign as φ, a superscript three); the picture shows the plain letter, so the layer is folded to it
+GLYPH_FOLD = str.maketrans({"ƣ": "ư", "Ƣ": "Ư", "φ": "0", "Φ": "0", "³": "3", "²": "2"})
+squash = lambda s: re.sub(r"([.\-_·…])\1+", r"\1", re.sub(r"\s+", "", unicodedata.normalize("NFC", s).lower().translate(GLYPH_FOLD)))
 grams = lambda s: collections.Counter(s[i:i + 3] for i in range(len(s) - 2))
 # A text layer is trusted when at least this share of its words (three characters or more) is free of stray symbols and of a capital after a lower-case letter.
 # Measured on the 267 table pages read: 265 sit at 0.93 or higher, the two corrupt layers at 0.73 and 0.85.

@@ -188,3 +188,11 @@ Limits of the measurements above, found by an outside review of the repository (
 - `eval_variants.py` cuts the golden to the STT range of one run, so a variant that misses rows is scored on fewer of them.
 - The model was chosen on the same evaluation set it is reported on. The table work (`ab_all_report.py`) splits the documents by `crc32(id) % 2` and keeps the odd half unexamined while fixing; the model comparison above does not.
 - A page whose own text layer is a bad embedded OCR layer is left out of the page pass rate by `ab_all_report.py` (two pages so far) and listed, since the yardstick there is the fault.
+
+## Fine-tuning on the crawl's own text layer (a1, a2; 2026-10-26)
+
+`make_train4.py` cuts 109k real lines from the 201 born-digital documents whose id hashes even (labelled table pages and the contract left out), adds 40k rendered lines, 24k empty crops, and the old table-cell and short-cell shards; labels are the PDF text layers, not the teacher. `eval_bench3.py` scores checkpoints on 6,000 lines from the odd half (never trained on). Fine-tuning z1 for 8,000 steps (a2): held-out character error 0.0781 to 0.0736, contract quantities 0.970 to 0.983, description error unchanged. Without the short-cell shards (a1) quantities fell to 0.928, because the new lines are all five characters or longer.
+
+On the 275 labelled table pages a2 is neutral: page pass 0.674 to 0.667, document pass 0.587 to 0.581, mean F1 0.881 to 0.882. Better line reading does not move the pass rate; what keeps pages under 0.9 is text that is never cut out (38 of the 92 failing pages lose over a third of their recall while precision stays high), reference layers with look-alike glyphs, and reading order. a2 was not shipped.
+
+`ab_all_report.py` now folds the look-alike glyphs some fonts put in the layer (ƣ for ư, φ for the diameter sign, superscript 2 and 3): page pass 0.667 to 0.674.
