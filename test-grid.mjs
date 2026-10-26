@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 
-const { gridClusters, gridTextBands, gridJointCount, gridRulesBelow, gridIsSideways, gridLineHeight, gridDespeckle, gridSplitWide, gridSplitWideAny, gridInkRuns, gridSplitTall, gridLinePitch, gridUnderSegmented, gridCells, gridPickColumns, gridIsRuleFragment, gridRuleShare, gridColumnLineHeights } = createRequire(import.meta.url)('./docs/boq-grid.js');
+const { gridClusters, gridTextBands, gridJointCount, gridRulesBelow, gridIsSideways, gridLineHeight, gridDespeckle, gridSplitWide, gridSplitWideAny, gridInkRuns, gridSplitTall, gridSplitAtValley, gridLinePitch, gridUnderSegmented, gridCells, gridPickColumns, gridIsRuleFragment, gridRuleShare, gridColumnLineHeights } = createRequire(import.meta.url)('./docs/boq-grid.js');
 
 const tests = {
   'a thick ruled line collapses to one position'() {
@@ -175,6 +175,13 @@ const tests = {
     assert.deepEqual(gridSplitWideAny(ink, [0, 122], 60, [3]), [[0, 122]]);                       // no gap that wide: left whole
     assert.deepEqual(gridSplitWideAny(ink, [0, 122], 60, [2, 1]).length, 3);                      // the 2-wide gap is not enough, the 1-wide one finishes it
     assert.deepEqual(gridSplitWideAny(ink, [0, 122], 200, [2, 1]), [[0, 122]]);                   // already narrow enough
+  },
+  'two heading lines with touching accents are cut at the row with no ink, one line is not'() {
+    const two = [...Array(20).fill(50), 2, ...Array(20).fill(60)];          // 41 rows, a valley at row 20
+    assert.deepEqual(gridSplitAtValley([[0, 41]], two, 8), [[0, 20], [21, 41]]);
+    const one = [10, 30, 50, 50, 50, 50, 50, 50, 40, 12];                    // ascenders and descenders at the edges
+    assert.deepEqual(gridSplitAtValley([[0, 10]], one, 3), [[0, 10]]);
+    assert.deepEqual(gridSplitAtValley([[0, 41]], two, 25), [[0, 41]]);       // a part would be shorter than a line
   },
   'a ruled line crossed by the column rules is a row boundary, a page-edge shadow is not'() {
     const w = 20, h = 20, ver = new Uint8Array(w * h);

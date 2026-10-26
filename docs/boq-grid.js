@@ -214,6 +214,22 @@ function gridSplitTall(bands, counts, lineH, ratio = 1.7, window = 0.3, floor = 
   return out;
 }
 
+// Two lines of a heading whose accents touch leave no blank row between them and come out as one band. If the band has a row
+// inside it with almost no ink (a tenth of the densest row), with at least `minPart` rows of text on each side, it is cut there
+// (at the row with the least ink); each part is then examined again. A single line has no such row: its ascenders and descenders
+// are at its edges, and the body of its letters is dense throughout.
+function gridSplitAtValley(bands, counts, minPart, share = 0.1) {
+  const out = [];
+  for (const [a, b] of bands) {
+    let best = -1, peak = 0;
+    for (let r = a; r < b; r++) peak = Math.max(peak, counts[r]);
+    for (let r = a + minPart; r <= b - minPart; r++) if (best < 0 || counts[r] < counts[best]) best = r;
+    if (best >= 0 && counts[best] <= share * peak) out.push(...gridSplitAtValley([[a, best], [best + 1, b]], counts, minPart, share));
+    else out.push([a, b]);
+  }
+  return out;
+}
+
 // Column lines from the per-column vertical-line mass (pixels of vertical ruling in each x). A real table line is
 // about as strong as the strongest one; letter strokes are weak. The page-edge shadow is ignored when setting the
 // scale: it lies within the outer 2% of the page, so a table whose last rule sits at 97% (page 11 of the contract) keeps its last column.
@@ -403,7 +419,8 @@ function _cellLineBoxes(ctx, cell, f, lineH, scanned, splitGaps = false) {
   };
   // Only a band wider than it is tall can be several lines of text: a tall narrow band is sideways text and stays whole. A block of
   // many short lines can be taller than wide too, but it is at least several line heights across, which sideways text never is.
-  const pieces = bands.flatMap(([a, b]) => { const [l, r] = extent(a, b); return r - l + 1 >= 1.5 * (b - a) || (lineH > 0 && r - l + 1 >= 8 * lineH) ? gridSplitTall([[a, b]], counts, lineH, 1.7, 0.3, Math.round(GRID_PITCH_MIN * f)) : [[a, b]]; });
+  const lines = splitGaps ? gridSplitAtValley(bands, counts, Math.round(GRID_BAND_MIN_H * 2.5 * f)) : bands;
+  const pieces = lines.flatMap(([a, b]) => { const [l, r] = extent(a, b); return r - l + 1 >= 1.5 * (b - a) || (lineH > 0 && r - l + 1 >= 8 * lineH) ? gridSplitTall([[a, b]], counts, lineH, 1.7, 0.3, Math.round(GRID_PITCH_MIN * f)) : [[a, b]]; });
   return pieces.flatMap(([a, b]) => {
     const ink = colInk(a, b);
     // The recogniser sees a strip 32 high and at most 512 wide, so a line wider than about 16 times its height is squeezed past reading:
@@ -506,4 +523,4 @@ async function ocrPageWithGrid(canvas, pageNum, grid, withHeading = true) {
   return { words, lines: [], cells };
 }
 
-if (typeof module !== 'undefined') module.exports = { gridClusters, gridTextBands, gridJointCount, gridRulesBelow, gridIsSideways, gridLineHeight, gridLinePitch, gridDespeckle, gridSplitWide, gridSplitWideAny, gridInkRuns, gridSplitTall, gridCells, gridPickColumns, gridIsRuleFragment, gridRuleShare, gridMergeGroups, gridColumnLineHeights };
+if (typeof module !== 'undefined') module.exports = { gridClusters, gridTextBands, gridJointCount, gridRulesBelow, gridIsSideways, gridLineHeight, gridLinePitch, gridDespeckle, gridSplitWide, gridSplitWideAny, gridInkRuns, gridSplitTall, gridSplitAtValley, gridCells, gridPickColumns, gridIsRuleFragment, gridRuleShare, gridMergeGroups, gridColumnLineHeights };
