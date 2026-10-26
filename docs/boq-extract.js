@@ -495,6 +495,10 @@ function gridCellsToWordGrid(pageWords, pageCells) {
   const maxRight = pageCells.reduce((m, c) => Math.max(m, c.x + c.width), 0);
   const maxBottom = pageCells.reduce((m, c) => Math.max(m, c.y + c.height), 0);
 
+  // The median cell must hold this many lines before a row is taken for a stack of table rows: a wrapped record (a name of four lines
+  // beside a date of one) has three or four at most, and cutting it into bands would tear one record into several rows. Measured on the
+  // 275 table pages: 5 gave the best document pass rate; 3 cut wrapped records, and a stack of entries (a customs list) holds a dozen or more.
+  const STACK_MIN_LINES = 5;
   // A grid whose horizontal lines were mostly missed (a photo with faint rules) has rows that each hold several table rows: most of
   // their cells then hold three or more lines. A wrapped description is one tall cell among cells of one line, so it is not split.
   // Such a row is cut into bands by the vertical position of its lines.
@@ -508,7 +512,7 @@ function gridCellsToWordGrid(pageWords, pageCells) {
     const perCell = new Map();
     ws.forEach(w => perCell.set(w.cell.col, (perCell.get(w.cell.col) || 0) + 1));
     const counts = [...perCell.values()].sort((p, q) => p - q);
-    if (counts.length < 3 || counts[Math.floor(counts.length / 2)] < 3) { bandsOf.set(row, 1); continue; }
+    if (counts.length < 3 || counts[Math.floor(counts.length / 2)] < STACK_MIN_LINES) { bandsOf.set(row, 1); continue; }
     const heights = ws.map(w => w.y1 - w.y).sort((p, q) => p - q);
     const gap = 0.6 * heights[Math.floor(heights.length / 2)];
     const sorted = [...ws].sort((p, q) => (p.y + p.y1) - (q.y + q.y1));

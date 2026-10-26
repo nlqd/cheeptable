@@ -164,10 +164,10 @@ CT.runJob = async function (file) {
         }
         // A grid found in something that is not a clean table (a photo with a red banner, say) is read as noise: the recogniser is
         // unsure of nearly every cell. Real tables read at about 90, noise at 20 to 50. The page is then read as plain text.
+        // (A grid whose rows each hold wrapped records is no reason to give up the grid: it is read row by row, see gridCellsToWordGrid.)
         const meanConf = ocrResult.words.length ? ocrResult.words.reduce((s, w) => s + w.confidence, 0) / ocrResult.words.length : 100;
-        const crowded = grid ? gridUnderSegmented(ocrResult.words) : 0;      // rules mostly missed: each grid row holds several table rows
-        if (grid && ocrResult.words.length >= 10 && (meanConf < 60 || crowded >= 0.5)) {
-          log(`  Page ${p}: the grid is not a table grid (read at confidence ${meanConf.toFixed(0)}, ${(100 * crowded).toFixed(0)}% of its rows crowded); reading the page as text`, 'warn');
+        if (grid && ocrResult.words.length >= 10 && meanConf < 60) {
+          log(`  Page ${p}: the grid is not a table grid (read at confidence ${meanConf.toFixed(0)}); reading the page as text`, 'warn');
           grid = null;
           borderData = opencvReady ? await detectTableBorders(canvas) : borderData;
           ocrResult = await ocrPageWithOnnx(canvas, p);

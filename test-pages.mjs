@@ -25,15 +25,20 @@ const tests = {
   },
   'the lines of cells merged across rows stay in one row, however many they are'() {
     const cells = [0, 1, 2].map(col => ({ row: 0, col, x: col * 100, y: 0, width: 90, height: 200, rowspan: 4 }));
-    const words = [0, 1, 2].flatMap(col => [0, 1, 2].map(i => ({ text: `c${col}l${i}`, x: col * 100, y: i * 20, x1: col * 100 + 50, y1: i * 20 + 12, confidence: 90, cell: { row: 0, col, tall: true } })));
+    const words = [0, 1, 2].flatMap(col => [0, 1, 2, 3, 4, 5].map(i => ({ text: `c${col}l${i}`, x: col * 100, y: i * 40, x1: col * 100 + 50, y1: i * 40 + 12, confidence: 90, cell: { row: 0, col, tall: true } })));
     const { grid, numRows } = gridCellsToWordGrid(words, cells);
     assert.equal(numRows, 1);
-    assert.equal(grid[0][1].text, 'c1l0 c1l1 c1l2');
+    assert.equal(grid[0][1].text, 'c1l0 c1l1 c1l2 c1l3 c1l4 c1l5');
   },
-  'the same lines in cells that are not merged still cut a row that holds several table rows'() {
+  'a row of several columns each holding a stack of lines is several table rows, and is cut by the position of its lines'() {
+    const cells = [0, 1, 2].map(col => ({ row: 0, col, x: col * 100, y: 0, width: 90, height: 300 }));
+    const words = [0, 1, 2].flatMap(col => [0, 1, 2, 3, 4, 5].map(i => ({ text: `c${col}l${i}`, x: col * 100, y: i * 40, x1: col * 100 + 50, y1: i * 40 + 12, confidence: 90, cell: { row: 0, col } })));
+    assert.equal(gridCellsToWordGrid(words, cells).numRows, 6);
+  },
+  'a wrapped record of three or four lines per cell is one row, not a stack'() {
     const cells = [0, 1, 2].map(col => ({ row: 0, col, x: col * 100, y: 0, width: 90, height: 200 }));
-    const words = [0, 1, 2].flatMap(col => [0, 1, 2].map(i => ({ text: `c${col}l${i}`, x: col * 100, y: i * 40, x1: col * 100 + 50, y1: i * 40 + 12, confidence: 90, cell: { row: 0, col } })));
-    assert.equal(gridCellsToWordGrid(words, cells).numRows, 3);
+    const words = [0, 1, 2].flatMap(col => [0, 1, 2, 3].map(i => ({ text: `c${col}l${i}`, x: col * 100, y: i * 40, x1: col * 100 + 50, y1: i * 40 + 12, confidence: 90, cell: { row: 0, col } })));
+    assert.equal(gridCellsToWordGrid(words, cells).numRows, 1);
   },
   'text-layer coverage ignores the heading and a note, and counts a missed column'() {
     const cells = [{ row: -1, x: 0, y: 0, width: 50, height: 10 },    // the heading cell above the table

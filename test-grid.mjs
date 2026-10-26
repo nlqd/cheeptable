@@ -53,19 +53,6 @@ const tests = {
   'without a line height nothing is split'() {
     assert.deepEqual(gridSplitTall([[0, 40]], new Array(40).fill(5), 0), [[0, 40]]);
   },
-  'a grid whose rows each hold many lines is under-segmented, one with a wrapped cell is not'() {
-    const lines = (row, col, n) => Array.from({ length: n }, () => ({ cell: { row, col } }));
-    const crowded = [0, 1].flatMap(r => [0, 1, 2, 3].flatMap(c => lines(r, c, 5)));
-    const wrapped = [0, 1].flatMap(r => [...lines(r, 0, 1), ...lines(r, 1, 4), ...lines(r, 2, 1), ...lines(r, 3, 1)]);
-    assert.equal(gridUnderSegmented(crowded), 1);
-    assert.equal(gridUnderSegmented(wrapped), 0);
-  },
-  'lines inside cells merged across rows are one cell each, so they never make a grid look crowded'() {
-    const words = (tall) => [0, 1, 2].flatMap(col => [0, 1, 2].map(() => ({ cell: { row: 0, col, tall } })));
-    assert.equal(gridUnderSegmented(words(false)), 1);
-    assert.equal(gridUnderSegmented(words(true)), 0);
-    assert.equal(gridUnderSegmented([...words(true), { cell: { row: 1, col: 0 } }]), 0);
-  },
   'a speck is not a text line'() {
     const ink = [0, 0, 1, 1, 0, 0, 0, 0, 0, 0].map(Boolean);
     assert.deepEqual(gridTextBands(ink, 3, 6), []);

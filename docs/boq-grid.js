@@ -167,23 +167,6 @@ function gridLinePitch(counts, a, b, minLag, agree = 0.5) {
 // Lines set tightly (justified text, accents touching the line above) leave no blank row between them and come out as one tall band.
 // A band much taller than a line is cut at the row with the least ink near each expected line boundary. `lineH` is a typical line
 // height on the page; `counts` is the ink per row of the cell.
-// Share of the words that sit in grid rows holding several table rows each (the median cell of the row has three or more lines). A grid
-// like that is one whose horizontal rules were mostly missed, and its rows cannot be trusted (see gridCellsToWordGrid in boq-extract.js).
-function gridUnderSegmented(all) {
-  const words = all.filter(w => !w.cell.tall);        // the lines of a cell merged across rows are one cell's text
-  const rows = new Map();
-  for (const w of words) {
-    const cols = rows.get(w.cell.row) || new Map();
-    cols.set(w.cell.col, (cols.get(w.cell.col) || 0) + 1);
-    rows.set(w.cell.row, cols);
-  }
-  let crowded = 0;
-  for (const cols of rows.values()) {
-    if (cols.size >= 3 && [...cols.values()].sort((a, b) => a - b)[Math.floor(cols.size / 2)] >= 3) crowded += [...cols.values()].reduce((s, n) => s + n, 0);
-  }
-  return words.length ? crowded / words.length : 0;
-}
-
 function gridSplitTall(bands, counts, lineH, ratio = 1.7, window = 0.3, floor = 0) {
   const out = [];
   // `floor` is the shortest line pitch worth looking for. Where every band of a column is a merged strip (small print set tight) the
@@ -344,8 +327,20 @@ async function findGrid(canvas) {
     // a few boxes on a page of text are not a table: the extractor wants at least 20 cells, so a smaller grid is not used
     if (!(xs.length >= 3 && ys.length >= 3 && (xs.length - 1) * (ys.length - 1) >= 20)) return null;
     // which rules are drawn between neighbouring cells, so a banner or a tall cell is read whole, not cut at lines that are not there
-    const v = ysSrc.slice(0, -1).map((y, r) => xsSrc.map(x => gridRuleShare(ver.data, w, h, x, y + reach + 1, ysSrc[r + 1] - reach, true, reach)));
-    const hh = ysSrc.map(y => xsSrc.slice(0, -1).map((x, c) => gridRuleShare(horShort.data, w, h, y, x + reach + 1, xsSrc[c + 1] - reach, false, reach)));
+    // An edge counts as undrawn only when the opened rule mask and the raw ink agree: near the end of a table the opening can lose a rule
+    // that is plainly there (contract page 8, last rows), and merging across it would put an item number into its description.
+    // The opened mask holds only long straight lines, so it can be searched sideways: on a tilted scan a rule has drifted several pixels from
+    // its line by the page's far end. The raw ink vouches for a rule only when it is strong, at the line itself: the opening loses rules near
+    // the end of a table (contract page 8, last rows: raw 0.7 to 0.9), while ordinary text near a cell edge gives a raw share of 0.2 to 0.5.
+    const slide = Math.max(reach, Math.round(8 * f));
+    const share = (opened, vertical, at, from, to) => {
+      const raw = gridRuleShare(bw.data, w, h, at, from, to, vertical, reach);
+      let best = raw >= 0.6 ? raw : 0;
+      for (let d = -slide; d <= slide && best < 1; d++) best = Math.max(best, gridRuleShare(opened.data, w, h, at + d, from, to, vertical, 1));
+      return best;
+    };
+    const v = ysSrc.slice(0, -1).map((y, r) => xsSrc.map(x => share(ver, true, x, y + reach + 1, ysSrc[r + 1] - reach)));
+    const hh = ysSrc.map(y => xsSrc.slice(0, -1).map((x, c) => share(horShort, false, y, x + reach + 1, xsSrc[c + 1] - reach)));
     return { xs, ys, f: full, rules: { v, h: hh } };
   } finally {
     mats.forEach(m => m.delete());
@@ -486,4 +481,4 @@ async function ocrPageWithGrid(canvas, pageNum, grid, withHeading = true) {
   return { words, lines: [], cells };
 }
 
-if (typeof module !== 'undefined') module.exports = { gridClusters, gridTextBands, gridJointCount, gridRulesBelow, gridIsSideways, gridLineHeight, gridLinePitch, gridDespeckle, gridSplitWide, gridInkRuns, gridSplitTall, gridUnderSegmented, gridCells, gridPickColumns, gridIsRuleFragment, gridRuleShare, gridMergeGroups };
+if (typeof module !== 'undefined') module.exports = { gridClusters, gridTextBands, gridJointCount, gridRulesBelow, gridIsSideways, gridLineHeight, gridLinePitch, gridDespeckle, gridSplitWide, gridInkRuns, gridSplitTall, gridCells, gridPickColumns, gridIsRuleFragment, gridRuleShare, gridMergeGroups };
