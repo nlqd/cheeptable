@@ -98,3 +98,9 @@ hillclimb/vendor/
 benchmark/raw3/
 benchmark/manifest3_*.json
 benchmark/raw2/
+
+# contract PDF and local data, not for the repository
+7. Biểu giá HĐ.pdf
+venv_*/
+vie.traineddata
+extracted_rows_*.json

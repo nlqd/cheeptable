@@ -37,3 +37,14 @@ ab_model*.jsonl
 ab_model/
 ab_final*.jsonl
 ab_final/
+hosted_y16/
+ab_tab_v*_lane*.jsonl
+ab_base/
+ab_new/
+ab_new2/
+aball_base/
+aball_new/
+ab_code/
+ab_teacher2.jsonl
+ab_y16.jsonl
+runs/
