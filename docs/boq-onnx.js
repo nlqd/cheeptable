@@ -817,7 +817,9 @@ async function ocrPageWithOnnx(canvas, pageNum) {
 
   usable.forEach((box, i) => {
     const { text: rawText, confidence } = reads[i];
-    if (!rawText.trim() || confidence < 0.65) return;
+    // A lone dash or ditto mark (a zero, or "same as above") is read at lower confidence than a word, whatever it is
+    const mark = /^[-–—"'`]{1,2}$/.test(rawText.trim()) && confidence >= 0.35;
+    if (!rawText.trim() || (confidence < 0.65 && !mark)) return;
 
     const text = _postProcess(rawText);
     if (!text.trim()) return;
