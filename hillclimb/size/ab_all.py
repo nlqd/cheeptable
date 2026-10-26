@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Every born-digital PDF of manifest3_t*.json: three page pictures each (first, middle, last), read through the whole app.
-  size/ab_all.py OUT.jsonl --lane I --lanes K
+  size/ab_all.py OUT.jsonl --lane I --lanes K [--labcache TAG]
 (run from hillclimb/; serve.py on :8080 and a headless Chrome on port 9340+I; model staged in size/hosted)
 Scores are word F1 against the page's text layer and the share of the layer's numeric words found exactly."""
 import collections, glob, json, os, random, re, subprocess, sys, unicodedata
@@ -11,6 +11,7 @@ a = sys.argv
 opt = lambda k, d: type(d)(a[a.index(k) + 1]) if k in a else d
 out, lane, lanes = a[1], opt("--lane", 0), opt("--lanes", 1)
 n_scan, n_dig, n_pages = opt("--scanned", 70), opt("--digital", 50), opt("--pages", 3)
+labcache = opt("--labcache", "")                   # a tag: reads of unchanged crops are reused (docs/boq-onnx.js, lab only); change it with the model
 tags = opt("--tags", "")                           # e.g. t11,t12: only these manifests, every document
 port = 9340 + lane
 BASE = "http://localhost:8080"
@@ -59,7 +60,7 @@ def run(png, models, dst):
     if os.path.exists(dst):
         os.remove(dst)
     try:
-        subprocess.run(["python3", "ux/e2e.py", BASE + "/docs/index.html", png, dst, "--port", str(port), "--models", models],
+        subprocess.run(["python3", "ux/e2e.py", BASE + "/docs/index.html", png, dst, "--port", str(port), "--models", models, *(["--labcache", labcache] if labcache else [])],
                        capture_output=True, text=True, timeout=600)
     except subprocess.TimeoutExpired:
         return None

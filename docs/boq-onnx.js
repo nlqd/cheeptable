@@ -695,10 +695,42 @@ async function _recognizeBox(canvas, box) {
   return reads.reduce((best, r) => (r.confidence > best.confidence ? r : best));
 }
 
+// Lab only. localStorage['ct.labcache'] = a tag naming the model under test turns on a cache of reads, filed by the crop's pixels, so a run
+// over the same pages after a change that moves few crops recognises only the crops that moved. Change the tag with the model: a read is
+// reused only under the same tag, and never between the CPU and the GPU encoder (their reads differ in the last digits).
+const _LAB_TAG = (() => { try { return localStorage.getItem('ct.labcache') || ''; } catch (e) { return ''; } })();
+let _labDb = null;
+function _labOpen() {
+  if (!_labDb) _labDb = new Promise(done => {
+    try {
+      const req = indexedDB.open('ct-lab', 1);
+      req.onupgradeneeded = () => req.result.createObjectStore('reads');
+      req.onsuccess = () => done(req.result);
+      req.onerror = () => done(null);
+    } catch (e) { done(null); }
+  });
+  return _labDb;
+}
+async function _labGet(key) {
+  const db = await _labOpen();
+  if (!db) return null;
+  return new Promise(done => { const q = db.transaction('reads').objectStore('reads').get(key); q.onsuccess = () => done(q.result || null); q.onerror = () => done(null); });
+}
+function _labPut(key, read) { _labOpen().then(db => { if (db) db.transaction('reads', 'readwrite').objectStore('reads').put(read, key); }); }
+
 async function _recognizeCrop(canvas, x0, y0, x1, y1) {
   const imgTensor = _preprocessVietOCR(canvas, x0, y0, x1, y1);
   if (!imgTensor) return { text: '', confidence: 0 };
+  if (!_LAB_TAG) return _recognizeTensor(imgTensor);
+  const key = `${_LAB_TAG}|${_encoderOnGpu ? 'gpu' : 'cpu'}|${labTensorKey(imgTensor.data, imgTensor.dims[3])}`;   // before the tensor's buffer is handed to a worker
+  const hit = await _labGet(key);
+  if (hit) { imgTensor.dispose(); return hit; }
+  const read = await _recognizeTensor(imgTensor);
+  _labPut(key, read);
+  return read;
+}
 
+async function _recognizeTensor(imgTensor) {
   if (_encoderOnGpu) {
     const memory = await _gpuEncode(imgTensor);
     imgTensor.dispose();

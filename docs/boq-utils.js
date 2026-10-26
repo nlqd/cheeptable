@@ -71,3 +71,17 @@ const KNOWN_UNITS = new Set([
 ]);
 
 const COL_NAMES = ['STT','Mô tả công việc','Đvt','Khối lượng','Đơn giá','Thành tiền'];
+
+// Lab only (localStorage 'ct.labcache'): the key a recognised crop is filed under, from the preprocessed pixels and the strip width.
+// Two 32-bit hashes of the numbers' bit patterns, so that two different crops meeting in one key is not a thing to worry about.
+function labTensorKey(data, width) {
+  const words = new Uint32Array(data.buffer, data.byteOffset, data.length);
+  let a = 2166136261, b = 5381;
+  for (let i = 0; i < words.length; i++) {
+    a = Math.imul(a ^ words[i], 16777619) >>> 0;
+    b = (Math.imul(b ^ ((words[i] << 16) | (words[i] >>> 16)), 0x85ebca6b) + i) >>> 0;
+  }
+  return width + ':' + data.length + ':' + a.toString(36) + b.toString(36);
+}
+
+if (typeof module !== 'undefined') module.exports = { labTensorKey };

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Run a job through the page and keep what it produced.
-  e2e.py URL PDF OUT.json [--port 9333] [--mode guided] [--shots PREFIX] [--lang vi]
+  e2e.py URL PDF OUT.json [--port 9333] [--mode guided] [--shots PREFIX] [--lang vi] [--models URL] [--labcache TAG]
 Dumps the rows exactly as the engine delivered them (before the results view changes anything) so extraction can be compared
 with earlier runs, and optionally takes screenshots during and after the job."""
 import json, os, subprocess, sys, tempfile, time
@@ -22,15 +22,31 @@ def rodney(*args, timeout=300):
 rodney("connect", "localhost:" + port)
 if rodney("js", "1+1") != "2":
     sys.exit("no browser on port %s (check the headless Chrome) — refusing to run against another port" % port)
-rodney("open", "about:blank")
-rodney("open", url)
-rodney("waitload")
-time.sleep(1)
+ready = "typeof CT !== 'undefined' && !!CT.on && !!document.getElementById('fileInput')"
+
+
+def wait_ready(limit=30):
+    t = time.time()
+    while time.time() - t < limit:
+        if rodney("js", ready) == "true":
+            return
+        time.sleep(0.2)
+    sys.exit("the page did not come up")
+
+
 models = opt("--models")
-rodney("js", "(localStorage.setItem('ct.mode', '%s'), localStorage.setItem('ct.lang', '%s'), %s 1)" % (mode, lang, ("localStorage.setItem('ct.models', '%s')," % models) if models else ""))
+# every setting is stated each run (an empty one is removed), so nothing a profile kept from an earlier run still applies
+want = {"ct.mode": mode, "ct.lang": lang, "ct.models": models or "", "ct.labcache": opt("--labcache") or ""}
 rodney("open", url)
 rodney("waitload")
-time.sleep(1)
+wait_ready()
+# the settings live in the browser profile: the page is loaded twice only the first time a lane sees a new setting
+have = json.loads(rodney("js", "JSON.stringify(%s.map(k => localStorage.getItem(k) || ''))" % json.dumps(list(want))))
+if have != list(want.values()):
+    rodney("js", "(%s, 1)" % ", ".join(("localStorage.setItem(%s, %s)" if v else "localStorage.removeItem(%s)") % ((json.dumps(k), json.dumps(v)) if v else (json.dumps(k),)) for k, v in want.items()))
+    rodney("open", url)
+    rodney("waitload")
+    wait_ready()
 rodney("js", "(window.alert = () => {}, window.__errors = [], window.addEventListener('error', e => window.__errors.push(String(e.message))), window.addEventListener('unhandledrejection', e => window.__errors.push(String(e.reason))), 1)")
 rodney("js", "(CT.on('job:done', d => { window.__rows = d.rows; }), window.__ev = [], CT.emit = ((orig) => (t, d) => { window.__ev.push([t, performance.now()]); return orig(t, d); })(CT.emit), 1)")
 t0 = time.time()
@@ -38,7 +54,7 @@ rodney("file", "#fileInput", pdf)
 shot_at = [3, 12, 25]
 state = ""
 while time.time() - t0 < 900:
-    time.sleep(1)
+    time.sleep(0.25)
     el = time.time() - t0
     if shots and shot_at and el >= shot_at[0]:
         rodney("screenshot", "%s-%02ds.png" % (shots, shot_at.pop(0)))
@@ -48,7 +64,7 @@ while time.time() - t0 < 900:
 else:
     sys.exit("timeout: " + state)
 elapsed = time.time() - t0
-time.sleep(1.5)
+time.sleep(0.3)
 if shots:
     rodney("screenshot", shots + "-result.png")
 rows = rodney("js", "JSON.stringify(window.__rows)")
