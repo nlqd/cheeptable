@@ -7,7 +7,8 @@
 // Thresholds were tuned on pages rendered 1191 px wide (A4 at 144 dpi); everything pixel-sized scales with width.
 const GRID_REF_WIDTH = 1191;
 const GRID_INK = 170;          // luminance below this is ink
-const GRID_BAND_MIN_H = 6;     // shorter ink runs are specks, not text lines
+const GRID_BAND_MIN_H = 4;     // shorter ink runs are specks, not text lines (a digit in 6-point print is 11 rows tall at 200 dpi)
+const GRID_PITCH_MIN = 6;      // shortest line pitch looked for inside a tall band (6-point print is set at about 8 reference pixels)
 const GRID_BAND_GAP = 3;       // blank rows that separate two text lines in one cell
 
 // ── Pure helpers (unit-tested in test-grid.mjs) ──
@@ -401,7 +402,7 @@ function _cellLineBoxes(ctx, cell, f, lineH, scanned, splitGaps = false) {
     return [left, right];
   };
   // Only a band wider than it is tall can be several lines of text: a tall narrow band is sideways text and stays whole.
-  const pieces = bands.flatMap(([a, b]) => { const [l, r] = extent(a, b); return r - l + 1 >= 1.5 * (b - a) ? gridSplitTall([[a, b]], counts, lineH, 1.7, 0.3, Math.round(GRID_BAND_MIN_H * 1.0 * f)) : [[a, b]]; });
+  const pieces = bands.flatMap(([a, b]) => { const [l, r] = extent(a, b); return r - l + 1 >= 1.5 * (b - a) ? gridSplitTall([[a, b]], counts, lineH, 1.7, 0.3, Math.round(GRID_PITCH_MIN * f)) : [[a, b]]; });
   return pieces.flatMap(([a, b]) => {
     const ink = colInk(a, b);
     // The recogniser sees a strip 32 high and at most 512 wide, so a line wider than about 16 times its height is squeezed past reading:
