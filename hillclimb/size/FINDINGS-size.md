@@ -178,3 +178,13 @@ Not fixed: `Þ` (the vocabulary lacks it) is read as P, 9 or b; the equation row
 ## Reproduce
 
 `make_data.py` (eval set), `make_train.py`, `make_cells.py`, `label.py` (training data), `kd.py NAME --plan plans/j.json --ffn 1024 --steps 8000 --lam 0.02` (train), `release.sh NAME plans/j.json --ffn 1024` (export, int8 encoder, wire package, check), `onnx_eval.py DIR` (score a package; `ENC=encq` for the int8 encoder). Environments: `venv_train` (torch cu128), `venv_onnx_export` (exports). Training data, checkpoints and packages are not committed.
+
+## What these numbers do not show
+
+Limits of the measurements above, found by an outside review of the repository (2026-10-26) and checked against the scripts:
+
+- `line_bench.py` scores only reference lines whose characters are all in the recogniser's vocabulary, and drops lines under 5 characters or 25 pixels. A letter the model cannot write (`Þ`, the diameter sign, about 28% of the error on the contract) and short units or numbers are therefore never scored there. The contract and page-level runs do count them.
+- `make_golden_v2.py` takes the golden text from what the audit readers saw (`seen`) and keys the edits by STT, so test-split descriptions were edited too. The corrected golden is not human truth, and no committed script produces `audit_p*.jsonl`.
+- `eval_variants.py` cuts the golden to the STT range of one run, so a variant that misses rows is scored on fewer of them.
+- The model was chosen on the same evaluation set it is reported on. The table work (`ab_all_report.py`) splits the documents by `crc32(id) % 2` and keeps the odd half unexamined while fixing; the model comparison above does not.
+- A page whose own text layer is a bad embedded OCR layer is left out of the page pass rate by `ab_all_report.py` (two pages so far) and listed, since the yardstick there is the fault.
