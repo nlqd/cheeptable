@@ -73,7 +73,7 @@ const tests = {
     assert.deepEqual(gridTextBands(ink, 3, 6), [[2, 10]]);
   },
   'cells are inset from the ruled lines and thin cells are dropped'() {
-    const cells = gridCells([0, 100, 104], [0, 50, 60], 1);
+    const cells = gridCells([0, 100, 104], [0, 50, 56], 1);
     assert.deepEqual(cells.map(c => [c.row, c.col, c.x, c.y, c.width, c.height]), [[0, 0, 3, 3, 95, 45]]);
   },
   'a table of dense small print is read: rows 15 reference pixels apart still hold a line of text'() {
@@ -115,6 +115,12 @@ const tests = {
     const xs = [0, 100, 200, 300], ys = [0, 40, 80, 120];
     const none = (n, m) => Array.from({ length: n }, () => new Array(m).fill(0));
     assert.equal(gridCells(xs, ys, 1, { v: none(3, 4), h: none(4, 3) }).length, 9);
+  },
+  'rows of 19 px at twice the reference width are kept: the insets shrink with the row, so a line of print still fits'() {
+    const ys = Array.from({ length: 6 }, (_, i) => i * 19), cells = gridCells([0, 200, 400], ys, 1.96);
+    assert.equal(cells.length, 10);                                   // 5 rows x 2 columns
+    assert.equal(cells.every(c => c.height >= 13), true);
+    assert.equal(gridCells([0, 200, 400], [0, 100, 200], 1.96)[0].y, 6);   // an ordinary row keeps the full inset
   },
   'a tall narrow box holds sideways text, a short or wide one does not'() {
     assert.equal(gridIsSideways(14, 90), true);               // a column heading written upwards

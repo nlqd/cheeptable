@@ -268,6 +268,8 @@ function gridMergeGroups(rows, cols, rules) {
 function gridCells(xs, ys, f, rules = null) {
   const inL = Math.round(3 * f), inR = Math.round(2 * f);
   const rows = ys.length - 1, cols = xs.length - 1;
+  // On a dense page the rows are only a line of print high: insets of 5 reference pixels would eat half of one, so they shrink with the row.
+  const insetOf = (r, inset) => Math.min(inset, Math.max(2, Math.floor(0.12 * (ys[r + 1] - ys[r]))));
   const group = gridMergeGroups(rows, cols, rules);
   const cells = [];
   for (let r = 0; r < rows; r++) {
@@ -275,8 +277,8 @@ function gridCells(xs, ys, f, rules = null) {
       if (group && group[r * cols + c] !== r * cols + c) continue;           // swallowed by the cell it belongs to
       let r1 = r, c1 = c;
       if (group) for (let i = 0; i < rows * cols; i++) if (group[i] === r * cols + c) { r1 = Math.max(r1, Math.floor(i / cols)); c1 = Math.max(c1, i % cols); }
-      const y0 = ys[r] + inL, y1 = ys[r1 + 1] - inR;
-      if (y1 - y0 < GRID_BAND_MIN_H * f) continue;     // shorter than the shortest ink run that counts as a line of text
+      const y0 = ys[r] + insetOf(r, inL), y1 = ys[r1 + 1] - insetOf(r1, inR);
+      if (y1 - y0 < Math.min(GRID_BAND_MIN_H * f, 0.5 * (ys[r1 + 1] - ys[r]))) continue;     // shorter than the shortest ink run that counts as a line of text
       const x0 = xs[c] + inL, x1 = xs[c1 + 1] - inR;
       if (x1 - x0 < 8 * f) continue;
       const cell = { row: r, col: c, x: x0, y: y0, width: x1 - x0, height: y1 - y0, area: (x1 - x0) * (y1 - y0) };
@@ -368,7 +370,8 @@ function _cellBands(ctx, cell, f) {
   const dark = (i) => ink[i >> 2] === 1;
   const counts = new Array(height).fill(0);
   for (let r = 0; r < height; r++) for (let c = 0; c < width; c++) if (ink[r * width + c]) counts[r]++;
-  const bands = gridTextBands(counts.map(n => n > 0), Math.max(2, Math.round(GRID_BAND_GAP * f)), Math.round(GRID_BAND_MIN_H * f));
+  // a speck is shorter than a line of print: in a cell only a line high that is 0.4 of the cell (dense small print), else the usual six reference pixels
+  const bands = gridTextBands(counts.map(n => n > 0), Math.max(2, Math.round(GRID_BAND_GAP * f)), Math.min(Math.round(GRID_BAND_MIN_H * f), Math.round(0.4 * height)));
   return { px, dark, counts, bands };
 }
 
