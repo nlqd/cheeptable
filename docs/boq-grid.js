@@ -401,8 +401,9 @@ function _cellLineBoxes(ctx, cell, f, lineH, scanned, splitGaps = false) {
     colInk(a, b).forEach((n, c) => { if (n) { left = Math.min(left, c); right = c; } });
     return [left, right];
   };
-  // Only a band wider than it is tall can be several lines of text: a tall narrow band is sideways text and stays whole.
-  const pieces = bands.flatMap(([a, b]) => { const [l, r] = extent(a, b); return r - l + 1 >= 1.5 * (b - a) ? gridSplitTall([[a, b]], counts, lineH, 1.7, 0.3, Math.round(GRID_PITCH_MIN * f)) : [[a, b]]; });
+  // Only a band wider than it is tall can be several lines of text: a tall narrow band is sideways text and stays whole. A block of
+  // many short lines can be taller than wide too, but it is at least several line heights across, which sideways text never is.
+  const pieces = bands.flatMap(([a, b]) => { const [l, r] = extent(a, b); return r - l + 1 >= 1.5 * (b - a) || (lineH > 0 && r - l + 1 >= 8 * lineH) ? gridSplitTall([[a, b]], counts, lineH, 1.7, 0.3, Math.round(GRID_PITCH_MIN * f)) : [[a, b]]; });
   return pieces.flatMap(([a, b]) => {
     const ink = colInk(a, b);
     // The recogniser sees a strip 32 high and at most 512 wide, so a line wider than about 16 times its height is squeezed past reading:
