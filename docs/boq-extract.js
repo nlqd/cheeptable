@@ -247,7 +247,7 @@ function textLayerLines(items, pageNum) {
 // ── OCR Table Extraction ──
 const inPageBody = (top, bottom, pageHeight) => top > pageHeight * 0.05 && bottom < pageHeight * 0.95;
 
-async function ocrTableExtract(ocrLines, ocrWords, borderCells = [], textItems = [], pageSizes = {}) {
+async function ocrTableExtract(ocrLines, ocrWords, borderCells = [], textItems = [], pageSizes = {}, readAsGrid = new Set()) {
   const extractStart = performance.now();
 
   // Headers and footers (the top and bottom 5% of the page) are left out. The page height is the page's, not the lowest word's:
@@ -269,7 +269,8 @@ async function ocrTableExtract(ocrLines, ocrWords, borderCells = [], textItems =
     // trusted (the noise check in pipeline.js already rejects a grid the recogniser is unsure of).
     const pageText = textItems.filter(it => it.page === p);
     const share = pageText.length >= 5 ? shareTextInsideCells(pageText, cellsOfPage) : 1;
-    if (n < 20) log(`  Page ${p}: only ${n} cells in a grid, read as text instead`, 'warn');
+    // (a page the grid finder accepted has passed its own tests, among them the frame across the page that carries a table over)
+    if (n < 20 && !readAsGrid.has(p)) log(`  Page ${p}: only ${n} cells in a grid, read as text instead`, 'warn');
     else if (share < 0.8) log(`  Page ${p}: the grid's cells hold ${(100 * share).toFixed(0)}% of the text layer, read as text instead`, 'warn');
     else gridPages.add(p);
   }

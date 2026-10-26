@@ -320,6 +320,14 @@ function gridCells(xs, ys, f, rules = null) {
 
 // ── OpenCV: ruled lines -> grid ──
 
+// A few boxes on a page of text are not a table: the extractor wants at least 20 cells. A frame across most of the page with three
+// columns or more is one too, however few rows it has: it is the page that carries over the last row of a table.
+function gridIsTable(xs, ys, pageWidth) {
+  const cells = (xs.length - 1) * (ys.length - 1);
+  const frame = xs.length >= 4 && ys.length >= 2 && xs[xs.length - 1] - xs[0] >= 0.7 * pageWidth && cells >= 6;
+  return frame || (xs.length >= 3 && ys.length >= 3 && cells >= 20);
+}
+
 // Line detection runs on a copy no wider than GRID_REF_WIDTH (the size it was tuned on): the work falls with the pixel count and the
 // ruled lines are still several pixels thick there. Positions are scaled back to the full-size canvas.
 async function findGrid(canvas) {
@@ -363,7 +371,7 @@ async function findGrid(canvas) {
     const ys = ysSrc.map(y => Math.round(y / k));
     const xs = xsSrc.map(x => Math.round(x / k));
     // a few boxes on a page of text are not a table: the extractor wants at least 20 cells, so a smaller grid is not used
-    if (!(xs.length >= 3 && ys.length >= 3 && (xs.length - 1) * (ys.length - 1) >= 20)) return null;
+    if (!gridIsTable(xs, ys, canvas.width)) return null;
     // which rules are drawn between neighbouring cells, so a banner or a tall cell is read whole, not cut at lines that are not there
     // An edge counts as undrawn only when the opened rule mask and the raw ink agree: near the end of a table the opening can lose a rule
     // that is plainly there (contract page 8, last rows), and merging across it would put an item number into its description.
@@ -523,4 +531,4 @@ async function ocrPageWithGrid(canvas, pageNum, grid, withHeading = true) {
   return { words, lines: [], cells };
 }
 
-if (typeof module !== 'undefined') module.exports = { gridClusters, gridTextBands, gridJointCount, gridRulesBelow, gridIsSideways, gridLineHeight, gridLinePitch, gridDespeckle, gridSplitWide, gridSplitWideAny, gridInkRuns, gridSplitTall, gridSplitAtValley, gridCells, gridPickColumns, gridIsRuleFragment, gridRuleShare, gridMergeGroups, gridColumnLineHeights };
+if (typeof module !== 'undefined') module.exports = { gridClusters, gridTextBands, gridJointCount, gridRulesBelow, gridIsSideways, gridLineHeight, gridLinePitch, gridDespeckle, gridSplitWide, gridSplitWideAny, gridInkRuns, gridSplitTall, gridSplitAtValley, gridIsTable, gridCells, gridPickColumns, gridIsRuleFragment, gridRuleShare, gridMergeGroups, gridColumnLineHeights };

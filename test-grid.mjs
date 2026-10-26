@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 
-const { gridClusters, gridTextBands, gridJointCount, gridRulesBelow, gridIsSideways, gridLineHeight, gridDespeckle, gridSplitWide, gridSplitWideAny, gridInkRuns, gridSplitTall, gridSplitAtValley, gridLinePitch, gridUnderSegmented, gridCells, gridPickColumns, gridIsRuleFragment, gridRuleShare, gridColumnLineHeights } = createRequire(import.meta.url)('./docs/boq-grid.js');
+const { gridClusters, gridTextBands, gridJointCount, gridRulesBelow, gridIsSideways, gridLineHeight, gridDespeckle, gridSplitWide, gridSplitWideAny, gridInkRuns, gridSplitTall, gridSplitAtValley, gridIsTable, gridLinePitch, gridUnderSegmented, gridCells, gridPickColumns, gridIsRuleFragment, gridRuleShare, gridColumnLineHeights } = createRequire(import.meta.url)('./docs/boq-grid.js');
 
 const tests = {
   'a thick ruled line collapses to one position'() {
@@ -182,6 +182,14 @@ const tests = {
     const one = [10, 30, 50, 50, 50, 50, 50, 50, 40, 12];                    // ascenders and descenders at the edges
     assert.deepEqual(gridSplitAtValley([[0, 10]], one, 3), [[0, 10]]);
     assert.deepEqual(gridSplitAtValley([[0, 41]], two, 25), [[0, 41]]);       // a part would be shorter than a line
+  },
+  'a frame across the page is a table however few rows it has, a small box is not'() {
+    const wide = [100, 300, 600, 900, 1200, 1500, 1900];               // six columns, 1800 of a 2000 page
+    assert.ok(gridIsTable(wide, [50, 600], 2000));                          // one row: the carried-over page
+    assert.ok(!gridIsTable([100, 400, 800], [50, 600], 2000));              // two columns: not enough
+    assert.ok(!gridIsTable([100, 300, 500, 700], [50, 100], 2000));         // narrow box
+    assert.ok(!gridIsTable([100, 300, 500], [50, 100, 150], 2000));         // four cells
+    assert.ok(gridIsTable(Array.from({ length: 6 }, (_, i) => 100 * i), Array.from({ length: 6 }, (_, i) => 50 * i), 2000));   // 25 cells
   },
   'a ruled line crossed by the column rules is a row boundary, a page-edge shadow is not'() {
     const w = 20, h = 20, ver = new Uint8Array(w * h);
