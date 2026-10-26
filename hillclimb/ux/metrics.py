@@ -50,15 +50,16 @@ def med(key):
 
 
 def bytes_before(s, cutoff):
-    """Bytes of every resource that started before `cutoff` ms (cross-origin sizes that the browser hides are filled by HEAD)."""
+    """Bytes of every resource that started before `cutoff` ms (cross-origin sizes that the browser hides are filled by fetching the resource)."""
     total = s["htmlBytes"] or 0
     for r in s["resources"]:
         if r["start"] <= cutoff:
             size = r["size"]
             if not size:
-                h = subprocess.run(["curl", "--silent", "--location", "--head", r["name"]], capture_output=True, text=True, timeout=30).stdout
-                m = [l for l in h.lower().splitlines() if l.startswith("content-length:")]
-                size = int(m[-1].split(":")[1]) if m else 0
+                # what the browser would transfer: ask as it does (compressed) and count the bytes that arrive; a HEAD reply carries no length for a gzipped or chunked body
+                got = subprocess.run(["curl", "--silent", "--location", "--header", "Accept-Encoding: gzip, deflate, br", "--output", "/dev/null", "--write-out", "%{size_download}", r["name"]],
+                                     capture_output=True, text=True, timeout=60).stdout
+                size = int(got) if got.strip().isdigit() else 0
                 r["size"] = size
             total += size
     return total
