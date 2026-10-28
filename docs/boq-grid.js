@@ -9,6 +9,8 @@ const GRID_REF_WIDTH = 1191;
 const GRID_INK = 170;          // luminance below this is ink
 const GRID_BAND_MIN_H = 4;     // shorter ink runs are specks, not text lines (a digit in 6-point print is 11 rows tall at 200 dpi)
 const GRID_PITCH_MIN = 6;      // shortest line pitch looked for inside a tall band (6-point print is set at about 8 reference pixels)
+const GRID_FOOT_LIMIT = 0.92;  // text below the grid is read down to this share of the page height (the page number sits below)
+const GRID_ZONE_CONF = 0.8;    // least confidence of a line read outside the grid
 const GRID_FRAME_RULED = 0.6;  // share of the edges between cells that must be drawn for a grid to be a table
 const GRID_BAND_GAP = 3;       // blank rows that separate two text lines in one cell
 
@@ -457,6 +459,18 @@ function _cellLineBoxes(ctx, cell, f, lineH, scanned, splitGaps = false) {
   }).filter(Boolean);
 }
 
+// The stretches of the page outside the grid that are read as lines: above the first rule (when asked) and below the last, each at
+// least twelve reference pixels tall. Heights and positions are in canvas pixels; `f` is the canvas width over the reference width.
+function gridZones(ys, pageHeight, f, withHeading) {
+  const zones = [];
+  const topH = ys[0] - Math.round(3 * f);
+  if (withHeading && topH >= 12 * f) zones.push({ name: 'top', y: 0, height: topH });
+  const footY = ys[ys.length - 1] + Math.round(3 * f);
+  const footH = Math.round(GRID_FOOT_LIMIT * pageHeight) - footY;
+  if (footH >= 12 * f) zones.push({ name: 'foot', y: footY, height: footH });
+  return zones;
+}
+
 // Same return shape as ocrPageWithOnnx, plus the grid cells for the table builder.
 async function ocrPageWithGrid(canvas, pageNum, grid, withHeading = true) {
   if (!onnxReady) throw new Error('ONNX models not loaded');
@@ -466,15 +480,16 @@ async function ocrPageWithGrid(canvas, pageNum, grid, withHeading = true) {
   const cells = gridCells(grid.xs, grid.ys, grid.f, grid.rules);
   const words = [];
 
-  // The heading above the table (title, contract number, project) is not in any grid row: it is read as lines across the page and
-  // filed in the widest column of a row of its own, so it is not cut at the table's column lines. Only on the first table page: above
-  // the later ones sit page numbers and running heads.
-  const topH = grid.ys[0] - Math.round(3 * grid.f);
-  if (withHeading && topH >= 12 * grid.f && cells.length) {
+  // Text outside the grid is not in any grid row: the heading above the table (title, contract number, project) and what follows it
+  // (a note, the next heading, a second table) are read as lines across the page and filed in the widest column of a row of their own,
+  // so they are not cut at the table's column lines. Above, only on the first table page: above the later ones sit page numbers and
+  // running heads. Below, on every page, down to where the page number sits.
+  const m = Math.round(0.03 * canvas.width);
+  const zones = gridZones(grid.ys, canvas.height, grid.f, withHeading);
+  if (cells.length) {
     const widest = cells.reduce((best, c) => (c.width > best.width ? c : best), cells[0]);
-    const m = Math.round(0.03 * canvas.width);
     // the cell handed on has the geometry of its column; the crop it is read from spans the page
-    cells.unshift({ row: -1, col: widest.col, x: widest.x, y: 0, width: widest.width, height: topH, area: widest.width * topH, heading: { x: m, width: canvas.width - 2 * m } });
+    for (const z of zones) cells.unshift({ row: z.name === 'top' ? -1 : cells.length, col: widest.col, x: widest.x, y: z.y, width: widest.width, height: z.height, area: widest.width * z.height, heading: { x: m, width: canvas.width - 2 * m }, zone: z.name });
   }
   const cropOf = (c) => (c.heading ? { ...c, x: c.heading.x, width: c.heading.width } : c);
 
@@ -500,16 +515,17 @@ async function ocrPageWithGrid(canvas, pageNum, grid, withHeading = true) {
     if (i % 20 === 0) await yieldToMain();
   }
 
-  // Each line of the heading becomes a row of its own, top to bottom (ids below zero sort before the table's rows).
-  const proto = cells.find(c => c.heading);
-  if (proto) {
-    const headRows = [];
-    for (const it of items.filter(it => it.cell.heading).sort((p, q) => p.box.y0 - q.box.y0)) {
-      const last = headRows[headRows.length - 1];
-      if (last && (it.box.y0 + it.box.y1) / 2 <= last.y1) { last.items.push(it); last.y1 = Math.max(last.y1, it.box.y1); } else headRows.push({ items: [it], y1: it.box.y1 });
+  // Each line outside the grid becomes a row of its own, top to bottom (ids below zero sort before the table's rows, ids past its last row after).
+  const lastRow = Math.max(-1, ...cells.filter(c => !c.heading).map(c => c.row + (c.rowspan || 1) - 1));
+  for (const z of zones) {
+    const proto = cells.find(c => c.zone === z.name);
+    const lines = [];
+    for (const it of items.filter(it => it.cell === proto).sort((p, q) => p.box.y0 - q.box.y0)) {
+      const last = lines[lines.length - 1];
+      if (last && (it.box.y0 + it.box.y1) / 2 <= last.y1) { last.items.push(it); last.y1 = Math.max(last.y1, it.box.y1); } else lines.push({ items: [it], y1: it.box.y1 });
     }
-    const rows = headRows.map((hr, j) => {
-      const row = { ...proto, row: j - headRows.length, y: Math.min(...hr.items.map(it => it.box.y0)) };
+    const rows = lines.map((hr, j) => {
+      const row = { ...proto, row: z.name === 'top' ? j - lines.length : lastRow + 1 + j, y: Math.min(...hr.items.map(it => it.box.y0)) };
       hr.items.forEach(it => { it.cell = row; });
       return row;
     });
@@ -524,6 +540,8 @@ async function ocrPageWithGrid(canvas, pageNum, grid, withHeading = true) {
   items.forEach(({ box, cell }, i) => {
     const text = _postProcess(reads[i].text).trim();
     if (!text) return;
+    // a line outside the grid sits among stamps and signatures, whose strokes read as a stray letter: it must be read with some surety
+    if (cell.heading && (text.length < 2 || reads[i].confidence < GRID_ZONE_CONF)) return;
     words.push({
       text,
       x: box.x0 / s, y: box.y0 / s, x1: box.x1 / s, y1: box.y1 / s,
@@ -540,4 +558,4 @@ async function ocrPageWithGrid(canvas, pageNum, grid, withHeading = true) {
   return { words, lines: [], cells };
 }
 
-if (typeof module !== 'undefined') module.exports = { gridClusters, gridTextBands, gridJointCount, gridRulesBelow, gridIsSideways, gridLineHeight, gridLinePitch, gridDespeckle, gridSplitWide, gridSplitWideAny, gridInkRuns, gridSplitTall, gridSplitAtValley, gridIsTable, gridIsRuled, gridCells, gridPickColumns, gridIsRuleFragment, gridRuleShare, gridMergeGroups, gridColumnLineHeights };
+if (typeof module !== 'undefined') module.exports = { gridClusters, gridTextBands, gridJointCount, gridRulesBelow, gridIsSideways, gridLineHeight, gridLinePitch, gridDespeckle, gridSplitWide, gridSplitWideAny, gridInkRuns, gridSplitTall, gridSplitAtValley, gridIsTable, gridIsRuled, gridZones, gridCells, gridPickColumns, gridIsRuleFragment, gridRuleShare, gridMergeGroups, gridColumnLineHeights };

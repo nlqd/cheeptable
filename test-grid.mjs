@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 
-const { gridClusters, gridTextBands, gridJointCount, gridRulesBelow, gridIsSideways, gridLineHeight, gridDespeckle, gridSplitWide, gridSplitWideAny, gridInkRuns, gridSplitTall, gridSplitAtValley, gridIsTable, gridIsRuled, gridLinePitch, gridUnderSegmented, gridCells, gridPickColumns, gridIsRuleFragment, gridRuleShare, gridColumnLineHeights } = createRequire(import.meta.url)('./docs/boq-grid.js');
+const { gridClusters, gridTextBands, gridJointCount, gridRulesBelow, gridIsSideways, gridLineHeight, gridDespeckle, gridSplitWide, gridSplitWideAny, gridInkRuns, gridSplitTall, gridSplitAtValley, gridIsTable, gridIsRuled, gridZones, gridLinePitch, gridUnderSegmented, gridCells, gridPickColumns, gridIsRuleFragment, gridRuleShare, gridColumnLineHeights } = createRequire(import.meta.url)('./docs/boq-grid.js');
 
 const tests = {
   'a thick ruled line collapses to one position'() {
@@ -194,6 +194,13 @@ const tests = {
   'a grid whose column edges are drawn is a table, the broken lines of a drawing are not'() {
     assert.ok(gridIsRuled([[1, 1, 1, 0.9], [1, 1, 0.8, 1]]));
     assert.ok(!gridIsRuled([[1, 0, 0, 0.2], [0, 0.1, 1, 0], [0, 0, 0.3, 0]]));
+  },
+  'the page is read above the grid when asked and below it down to the page number'() {
+    assert.deepEqual(gridZones([300, 900], 2000, 1, true).map(z => [z.name, z.y, z.height]), [['top', 0, 297], ['foot', 903, 937]]);
+  },
+  'no zone is read where the grid leaves less than a line of room'() {
+    assert.deepEqual(gridZones([5, 1830], 2000, 1, true), []);
+    assert.deepEqual(gridZones([300, 900], 2000, 1, false).map(z => z.name), ['foot']);
   },
   'a ruled line crossed by the column rules is a row boundary, a page-edge shadow is not'() {
     const w = 20, h = 20, ver = new Uint8Array(w * h);
