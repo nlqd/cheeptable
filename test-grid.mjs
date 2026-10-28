@@ -196,10 +196,10 @@ const tests = {
     assert.ok(!gridIsRuled([[1, 0, 0, 0.2], [0, 0.1, 1, 0], [0, 0, 0.3, 0]]));
   },
   'the page is read above the grid when asked and below it down to the page number'() {
-    assert.deepEqual(gridZones([300, 900], 2000, 1, true).map(z => [z.name, z.y, z.height]), [['top', 0, 297], ['foot', 903, 937]]);
+    assert.deepEqual(gridZones([300, 900], 2000, 1, true).map(z => [z.name, z.y, z.height]), [['top', 0, 297], ['foot', 903, 1037]]);
   },
   'no zone is read where the grid leaves less than a line of room'() {
-    assert.deepEqual(gridZones([5, 1830], 2000, 1, true), []);
+    assert.deepEqual(gridZones([5, 1950], 2000, 1, true), []);
     assert.deepEqual(gridZones([300, 900], 2000, 1, false).map(z => z.name), ['foot']);
   },
   'a page is measured by its width, a sheet far wider than a page by 1.5 times its height'() {
