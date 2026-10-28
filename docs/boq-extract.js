@@ -263,14 +263,14 @@ async function ocrTableExtract(ocrLines, ocrWords, borderCells = [], textItems =
   const gridPages = new Set();
   for (const p of new Set(borderCells.map(c => c.page))) {
     const cellsOfPage = borderCells.filter(c => c.page === p);
-    // a merged cell still stands for the grid positions it covers: a banner row must not turn a real table into "a few boxes"
-    const n = cellsOfPage.reduce((sum, c) => sum + (c.rowspan || 1) * (c.colspan || 1), 0);
     // Only a text layer is an independent count of the words a grid must cover; a scanned page has none, so the grid is
     // trusted (the noise check in pipeline.js already rejects a grid the recogniser is unsure of).
     const pageText = textItems.filter(it => it.page === p);
     const share = pageText.length >= 5 ? shareTextInsideCells(pageText, cellsOfPage) : 1;
-    // (a page the grid finder accepted has passed its own tests, among them the frame across the page that carries a table over)
-    if (n < 20 && !readAsGrid.has(p)) log(`  Page ${p}: only ${n} cells in a grid, read as text instead`, 'warn');
+    // only a grid the grid finder accepted is read as one: it has passed its own tests, among them the frame across the page that carries
+    // a table over. The boxes the older border detector finds on a page with no accepted grid (a header band, a few group boxes) are not
+    // a table, and a body of unruled rows read into them comes out as one tall cell.
+    if (!readAsGrid.has(p)) log(`  Page ${p}: no grid was accepted, read as text instead`, 'warn');
     else if (share < 0.8) log(`  Page ${p}: the grid's cells hold ${(100 * share).toFixed(0)}% of the text layer, read as text instead`, 'warn');
     else gridPages.add(p);
   }
