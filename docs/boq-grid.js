@@ -9,6 +9,7 @@ const GRID_REF_WIDTH = 1191;
 const GRID_INK = 170;          // luminance below this is ink
 const GRID_BAND_MIN_H = 4;     // shorter ink runs are specks, not text lines (a digit in 6-point print is 11 rows tall at 200 dpi)
 const GRID_PITCH_MIN = 6;      // shortest line pitch looked for inside a tall band (6-point print is set at about 8 reference pixels)
+const GRID_FRAME_RULED = 0.6;  // share of the edges between cells that must be drawn for a grid to be a table
 const GRID_BAND_GAP = 3;       // blank rows that separate two text lines in one cell
 
 // ── Pure helpers (unit-tested in test-grid.mjs) ──
@@ -328,6 +329,13 @@ function gridIsTable(xs, ys, pageWidth) {
   return frame || (xs.length >= 3 && ys.length >= 3 && cells >= 20);
 }
 
+// A grid is a table only when its column rules run through its rows. The long lines of a drawing can make a grid of the same shape,
+// but they are broken: most of the edges between its cells are not drawn.
+function gridIsRuled(v) {
+  const edges = v.flat();
+  return edges.filter(x => x >= 0.5).length >= GRID_FRAME_RULED * edges.length;
+}
+
 // Line detection runs on a copy no wider than GRID_REF_WIDTH (the size it was tuned on): the work falls with the pixel count and the
 // ruled lines are still several pixels thick there. Positions are scaled back to the full-size canvas.
 async function findGrid(canvas) {
@@ -387,6 +395,7 @@ async function findGrid(canvas) {
     };
     const v = ysSrc.slice(0, -1).map((y, r) => xsSrc.map(x => share(ver, true, x, y + reach + 1, ysSrc[r + 1] - reach)));
     const hh = ysSrc.map(y => xsSrc.slice(0, -1).map((x, c) => share(horShort, false, y, x + reach + 1, xsSrc[c + 1] - reach)));
+    if (!gridIsRuled(v)) return null;
     return { xs, ys, f: full, rules: { v, h: hh } };
   } finally {
     mats.forEach(m => m.delete());
@@ -531,4 +540,4 @@ async function ocrPageWithGrid(canvas, pageNum, grid, withHeading = true) {
   return { words, lines: [], cells };
 }
 
-if (typeof module !== 'undefined') module.exports = { gridClusters, gridTextBands, gridJointCount, gridRulesBelow, gridIsSideways, gridLineHeight, gridLinePitch, gridDespeckle, gridSplitWide, gridSplitWideAny, gridInkRuns, gridSplitTall, gridSplitAtValley, gridIsTable, gridCells, gridPickColumns, gridIsRuleFragment, gridRuleShare, gridMergeGroups, gridColumnLineHeights };
+if (typeof module !== 'undefined') module.exports = { gridClusters, gridTextBands, gridJointCount, gridRulesBelow, gridIsSideways, gridLineHeight, gridLinePitch, gridDespeckle, gridSplitWide, gridSplitWideAny, gridInkRuns, gridSplitTall, gridSplitAtValley, gridIsTable, gridIsRuled, gridCells, gridPickColumns, gridIsRuleFragment, gridRuleShare, gridMergeGroups, gridColumnLineHeights };

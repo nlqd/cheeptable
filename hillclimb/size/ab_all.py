@@ -12,9 +12,11 @@ opt = lambda k, d: type(d)(a[a.index(k) + 1]) if k in a else d
 out, lane, lanes = a[1], opt("--lane", 0), opt("--lanes", 1)
 n_scan, n_dig, n_pages = opt("--scanned", 70), opt("--digital", 50), opt("--pages", 3)
 labcache = opt("--labcache", "")                   # a tag: reads of unchanged crops are reused (docs/boq-onnx.js, lab only); change it with the model
+ids = opt("--ids", "")                             # e.g. doc1,doc2: only these documents (every sampled page of them)
 tags = opt("--tags", "")                           # e.g. t11,t12: only these manifests, every document
 port = 9340 + lane
-BASE = "http://localhost:8080"
+BASE = opt("--base", "http://localhost:8080")            # --base URL: another server (the live code in a worktree, say)
+AB = opt("--aball", "size/aball")                          # --aball DIR: where the page pictures and reads go
 MODELS = {"student": BASE + "/hillclimb/size/" + opt("--hosted", "hosted")}   # --hosted DIR: another staged copy of the models
 
 norm = lambda s: unicodedata.normalize("NFC", s).lower()
@@ -30,6 +32,8 @@ def sample():
     for f in sorted(glob.glob("../benchmark/manifest3_t*.json")):
         docs += json.load(open(f))
     docs = [e for e in docs if e["born_digital"] is True and e["local_path"].lower().endswith(".pdf")]
+    if ids:
+        docs = [e for e in docs if e["id"] in ids.split(",")]
     jobs = []
     for e in docs:
         n = len(pdfium.PdfDocument(e["local_path"]))
@@ -76,12 +80,12 @@ def run(png, models, dst):
     return toks
 
 
-os.makedirs("size/aball", exist_ok=True)
+os.makedirs(AB, exist_ok=True)
 done = {(json.loads(l)["id"], json.loads(l)["page"]) for l in open(out)} if os.path.exists(out) else set()
 for i, (e, p) in enumerate(sample()):
     if i % lanes != lane or (e["id"], (p or 0) + 1) in done:
         continue
-    png = f"size/aball/{e['id']}_p{(p or 0) + 1}.png"
+    png = f"{AB}/{e['id']}_p{(p or 0) + 1}.png"
     if p is None:                                      # a picture, no text layer to compare with
         layer = []
         Image.open(e["local_path"]).convert("RGB").save(png)
@@ -90,7 +94,7 @@ for i, (e, p) in enumerate(sample()):
         page = pdfium.PdfDocument(e["local_path"])[p]
         layer = words(page.get_textpage().get_text_range())
         page.render(scale=200 / 72).to_pil().convert("RGB").save(png)
-    got = {k: run(png, m, f"size/aball/{e['id']}_p{p + 1}.{k}.json") for k, m in MODELS.items()}
+    got = {k: run(png, m, f"{AB}/{e['id']}_p{p + 1}.{k}.json") for k, m in MODELS.items()}
     rec = {"id": e["id"], "page": p + 1, "scan": e.get("scan_quality"), "category": e.get("category"), "layer_words": len(layer)}
     for k, g in got.items():
         rec[k + "_words"] = None if g is None else len(g)

@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 
-const { gridClusters, gridTextBands, gridJointCount, gridRulesBelow, gridIsSideways, gridLineHeight, gridDespeckle, gridSplitWide, gridSplitWideAny, gridInkRuns, gridSplitTall, gridSplitAtValley, gridIsTable, gridLinePitch, gridUnderSegmented, gridCells, gridPickColumns, gridIsRuleFragment, gridRuleShare, gridColumnLineHeights } = createRequire(import.meta.url)('./docs/boq-grid.js');
+const { gridClusters, gridTextBands, gridJointCount, gridRulesBelow, gridIsSideways, gridLineHeight, gridDespeckle, gridSplitWide, gridSplitWideAny, gridInkRuns, gridSplitTall, gridSplitAtValley, gridIsTable, gridIsRuled, gridLinePitch, gridUnderSegmented, gridCells, gridPickColumns, gridIsRuleFragment, gridRuleShare, gridColumnLineHeights } = createRequire(import.meta.url)('./docs/boq-grid.js');
 
 const tests = {
   'a thick ruled line collapses to one position'() {
@@ -190,6 +190,10 @@ const tests = {
     assert.ok(!gridIsTable([100, 300, 500, 700], [50, 100], 2000));         // narrow box
     assert.ok(!gridIsTable([100, 300, 500], [50, 100, 150], 2000));         // four cells
     assert.ok(gridIsTable(Array.from({ length: 6 }, (_, i) => 100 * i), Array.from({ length: 6 }, (_, i) => 50 * i), 2000));   // 25 cells
+  },
+  'a grid whose column edges are drawn is a table, the broken lines of a drawing are not'() {
+    assert.ok(gridIsRuled([[1, 1, 1, 0.9], [1, 1, 0.8, 1]]));
+    assert.ok(!gridIsRuled([[1, 0, 0, 0.2], [0, 0.1, 1, 0], [0, 0, 0.3, 0]]));
   },
   'a ruled line crossed by the column rules is a row boundary, a page-edge shadow is not'() {
     const w = 20, h = 20, ver = new Uint8Array(w * h);
