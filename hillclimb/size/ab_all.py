@@ -26,6 +26,7 @@ words = lambda s: [w for w in re.split(r"\s+", norm(s)) if w]
 def sample():
     if "--only" in a:                                   # just the pages that size/labels/page_labels.json calls tables
         want = {(o["id"], o["page"]) for o in json.load(open("size/labels/page_labels.json")) if o["label"] == "table"}
+        want = {w for w in want if not ids or w[0] in ids.split(",")}
         by_id = {e["id"]: e for f in glob.glob("../benchmark/manifest3_t*.json") for e in json.load(open(f))}
         return [(by_id[i], p - 1) for i, p in sorted(want)]
     docs = []

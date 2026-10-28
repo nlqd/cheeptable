@@ -187,10 +187,19 @@ function gridLinePitch(counts, a, b, minLag, agree = 0.5) {
   return 0;
 }
 
+// The line pitch of a page's body text: the median of the pitches found in bands that hold at least three lines, where a repeat in the
+// ink is unmistakable. Lines of one type size set the same pitch from cell to cell, so it can cut the bands whose own ink is too uneven to
+// show a repeat (two lines of different lengths), or whose repeat was found at a multiple of the pitch. 0 when fewer than three bands agree.
+function gridPagePitch(pitches, minSamples = 3) {
+  if (pitches.length < minSamples) return 0;
+  const sorted = [...pitches].sort((p, q) => p - q);
+  return sorted[Math.floor((sorted.length - 1) / 2)];
+}
+
 // Lines set tightly (justified text, accents touching the line above) leave no blank row between them and come out as one tall band.
 // A band much taller than a line is cut at the row with the least ink near each expected line boundary. `lineH` is a typical line
 // height on the page; `counts` is the ink per row of the cell.
-function gridSplitTall(bands, counts, lineH, ratio = 1.7, window = 0.3, floor = 0) {
+function gridSplitTall(bands, counts, lineH, ratio = 1.7, window = 0.3, floor = 0, known = 0) {
   const out = [];
   // `floor` is the shortest line pitch worth looking for. Where every band of a column is a merged strip (small print set tight) the
   // column's own line height is the strip itself, so a band is examined from twice the floor up and the floor is the shortest lag tried.
@@ -199,7 +208,10 @@ function gridSplitTall(bands, counts, lineH, ratio = 1.7, window = 0.3, floor = 
     const h = b - a;
     if (!(low > 0) || h < ratio * low) { out.push([a, b]); continue; }
     // the band is cut only if its ink repeats at a steady pitch, which is the pitch of its lines; one tall line does not repeat
-    const pitch = gridLinePitch(counts, a, b, floor > 0 ? floor : 0.8 * lineH);
+    let pitch = gridLinePitch(counts, a, b, floor > 0 ? floor : 0.8 * lineH);
+    // the page's own pitch stands in where the band shows none or one that is not it, but only if every cut lands in a gap between lines
+    const fromPage = known > 0 && h >= ratio * known && (!pitch || Math.abs(pitch - known) > 0.2 * known);
+    if (fromPage) pitch = known;
     if (!pitch) { out.push([a, b]); continue; }
     const n = Math.max(2, Math.round(h / pitch));
     let from = a;
@@ -211,6 +223,10 @@ function gridSplitTall(bands, counts, lineH, ratio = 1.7, window = 0.3, floor = 
         if (best < 0 || counts[r] < counts[best] || (counts[r] === counts[best] && Math.abs(r - target) < Math.abs(best - target))) best = r;
       }
       if (best >= 0) cuts.push(best);
+    }
+    if (fromPage) {
+      const mean = counts.slice(a, b).reduce((t, c) => t + c, 0) / h;
+      if (cuts.length < n - 1 || cuts.some(c => counts[c] > 0.5 * mean)) { out.push([a, b]); continue; }
     }
     for (const c of [...cuts, b]) { if (c - from >= 3) out.push([from, c]); from = c; }
   }
@@ -430,7 +446,7 @@ function _cellBands(ctx, cell, f) {
   return { px, dark, counts, bands };
 }
 
-function _cellLineBoxes(ctx, cell, f, lineH, scanned, splitGaps = false) {
+function _cellLineBoxes(ctx, cell, f, lineH, scanned, splitGaps = false, pagePitch = 0) {
   const { x, y, width } = cell;
   const { dark, counts, bands } = scanned || _cellBands(ctx, cell, f);
   const margin = Math.round(3 * f);
@@ -447,7 +463,7 @@ function _cellLineBoxes(ctx, cell, f, lineH, scanned, splitGaps = false) {
   // Only a band wider than it is tall can be several lines of text: a tall narrow band is sideways text and stays whole. A block of
   // many short lines can be taller than wide too, but it is at least several line heights across, which sideways text never is.
   const lines = splitGaps ? gridSplitAtValley(bands, counts, Math.round(GRID_BAND_MIN_H * 2.5 * f)) : bands;
-  const pieces = lines.flatMap(([a, b]) => { const [l, r] = extent(a, b); return r - l + 1 >= 1.5 * (b - a) || (lineH > 0 && r - l + 1 >= 8 * lineH) ? gridSplitTall([[a, b]], counts, lineH, 1.7, 0.3, Math.round(GRID_PITCH_MIN * f)) : [[a, b]]; });
+  const pieces = lines.flatMap(([a, b]) => { const [l, r] = extent(a, b); return r - l + 1 >= 1.5 * (b - a) || (lineH > 0 && r - l + 1 >= 8 * lineH) ? gridSplitTall([[a, b]], counts, lineH, 1.7, 0.3, Math.round(GRID_PITCH_MIN * f), splitGaps ? 0 : pagePitch) : [[a, b]]; });
   return pieces.flatMap(([a, b]) => {
     const ink = colInk(a, b);
     // The recogniser sees a strip 32 high and at most 512 wide, so a line wider than about 16 times its height is squeezed past reading:
@@ -513,10 +529,20 @@ async function ocrPageWithGrid(canvas, pageNum, grid, withHeading = true) {
   const lineH = gridColumnLineHeights(new Map([...byCol].map(([col, bands]) => [col, gridLineHeight(bands)])));
   // the heading is not in a column: it is set in a larger face than a column of figures, so it takes the tallest line of any column
   const headingLineH = Math.max(0, ...lineH.values());
+  const pitches = [];
+  cells.forEach((c, i) => {
+    if (c.heading || c.colspan) return;
+    const low = lineH.get(c.col) || 0;
+    for (const [a, b] of scans[i].bands) {
+      const pitch = low > 0 && b - a >= 3 * low ? gridLinePitch(scans[i].counts, a, b, Math.round(GRID_PITCH_MIN * grid.f)) : 0;
+      if (pitch && b - a >= 2.6 * pitch) pitches.push(pitch);
+    }
+  });
+  const pagePitch = gridPagePitch(pitches);
 
   const items = [];
   for (let i = 0; i < cells.length; i++) {
-    for (const box of _cellLineBoxes(ctx, cropOf(cells[i]), grid.f, cells[i].heading ? headingLineH : lineH.get(cells[i].col) ?? headingLineH, scans[i], !!cells[i].heading)) {
+    for (const box of _cellLineBoxes(ctx, cropOf(cells[i]), grid.f, cells[i].heading ? headingLineH : lineH.get(cells[i].col) ?? headingLineH, scans[i], !!cells[i].heading, pagePitch)) {
       if (box.x1 - box.x0 >= 5 && box.y1 - box.y0 >= 5) items.push({ box, cell: cells[i] });
     }
     scans[i] = null;
@@ -566,4 +592,4 @@ async function ocrPageWithGrid(canvas, pageNum, grid, withHeading = true) {
   return { words, lines: [], cells };
 }
 
-if (typeof module !== 'undefined') module.exports = { gridClusters, gridTextBands, gridJointCount, gridRulesBelow, gridIsSideways, gridLineHeight, gridLinePitch, gridDespeckle, gridSplitWide, gridSplitWideAny, gridInkRuns, gridSplitTall, gridSplitAtValley, gridIsTable, gridIsRuled, gridSpan, gridZones, gridCells, gridPickColumns, gridIsRuleFragment, gridRuleShare, gridMergeGroups, gridColumnLineHeights };
+if (typeof module !== 'undefined') module.exports = { gridClusters, gridTextBands, gridJointCount, gridRulesBelow, gridIsSideways, gridLineHeight, gridLinePitch, gridDespeckle, gridSplitWide, gridSplitWideAny, gridInkRuns, gridSplitTall, gridPagePitch, gridSplitAtValley, gridIsTable, gridIsRuled, gridSpan, gridZones, gridCells, gridPickColumns, gridIsRuleFragment, gridRuleShare, gridMergeGroups, gridColumnLineHeights };

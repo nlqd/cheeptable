@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 
-const { gridClusters, gridTextBands, gridJointCount, gridRulesBelow, gridIsSideways, gridLineHeight, gridDespeckle, gridSplitWide, gridSplitWideAny, gridInkRuns, gridSplitTall, gridSplitAtValley, gridIsTable, gridIsRuled, gridSpan, gridZones, gridLinePitch, gridUnderSegmented, gridCells, gridPickColumns, gridIsRuleFragment, gridRuleShare, gridColumnLineHeights } = createRequire(import.meta.url)('./docs/boq-grid.js');
+const { gridClusters, gridTextBands, gridJointCount, gridRulesBelow, gridIsSideways, gridLineHeight, gridDespeckle, gridSplitWide, gridSplitWideAny, gridInkRuns, gridSplitTall, gridPagePitch, gridSplitAtValley, gridIsTable, gridIsRuled, gridSpan, gridZones, gridLinePitch, gridUnderSegmented, gridCells, gridPickColumns, gridIsRuleFragment, gridRuleShare, gridColumnLineHeights } = createRequire(import.meta.url)('./docs/boq-grid.js');
 
 const tests = {
   'a thick ruled line collapses to one position'() {
@@ -194,6 +194,17 @@ const tests = {
   'a grid whose column edges are drawn is a table, the broken lines of a drawing are not'() {
     assert.ok(gridIsRuled([[1, 1, 1, 0.9], [1, 1, 0.8, 1]]));
     assert.ok(!gridIsRuled([[1, 0, 0, 0.2], [0, 0.1, 1, 0], [0, 0, 0.3, 0]]));
+  },
+  'the pitch of a page is the median of the pitches found, and unknown from fewer than three'() {
+    assert.equal(gridPagePitch([18, 17, 40, 18, 19]), 18);
+    assert.equal(gridPagePitch([18, 18]), 0);
+  },
+  'a band is cut at the page pitch where its own ink shows no pitch, only in a gap between lines'() {
+    const line = [2, 8, 10, 10, 10, 10, 10, 3, 0, 0, 0, 0, 0, 0, 0, 0];
+    const short = [1, 2, 3, 3, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+    const pieces = gridSplitTall([[0, 32]], [...line, ...short], 9, 1.7, 0.3, 6, 16);
+    assert.equal(pieces.length, 2);
+    assert.equal(gridSplitTall([[0, 32]], new Array(32).fill(10), 9, 1.7, 0.3, 6, 16).length, 1);   // one tall line has no gap to cut at
   },
   'the page is read above the grid when asked and below it down to the page number'() {
     assert.deepEqual(gridZones([300, 900], 2000, 1, true).map(z => [z.name, z.y, z.height]), [['top', 0, 297], ['foot', 903, 1037]]);
