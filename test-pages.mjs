@@ -3,9 +3,19 @@ import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 
 const { tablePages, shareTextInsideCells } = createRequire(import.meta.url)('./docs/boq-pages.js');
-const { gridCellsToWordGrid, inPageBody } = createRequire(import.meta.url)('./docs/boq-extract.js');
+const { gridCellsToWordGrid, inPageBody, imageScale } = createRequire(import.meta.url)('./docs/boq-extract.js');
 const row = (page, ...cells) => ({ page, cells: cells.map(value => ({ value })) });
 const tests = {
+  'a photo comes down to a long side of 2400'() {
+    assert.equal(imageScale(4000, 3000), 0.6);
+  },
+  'a picture already small enough is not scaled'() {
+    assert.equal(imageScale(1200, 1600), 1);
+  },
+  'a very tall sheet keeps its width, the pixel cap holds'() {
+    assert.equal(imageScale(2187, 10481), 1);
+    assert.ok(imageScale(2400, 20000) < 0.8);
+  },
   'a page of rows with several cells is a table'() {
     const rows = [1, 2, 3, 4].map(n => row(1, String(n), 'Cát', 'm3', '400.000'));
     assert.deepEqual([...tablePages(rows)], [1]);

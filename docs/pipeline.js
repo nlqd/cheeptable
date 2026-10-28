@@ -34,7 +34,7 @@ CT.opencv = () => CT.loadScript('opencv.js').then(() => new Promise(ok => {
 // ── A picture as a one-page document, with the few methods the pipeline calls on a pdf.js page ──
 async function imageAsPdf(file) {
   const bitmap = await createImageBitmap(file);
-  const k = Math.min(1, IMAGE_MAX_SIDE_PX / Math.max(bitmap.width, bitmap.height));
+  const k = imageScale(bitmap.width, bitmap.height, IMAGE_MAX_SIDE_PX);
   const w = Math.round(bitmap.width * k), h = Math.round(bitmap.height * k);
   const page = {
     getViewport: ({ scale }) => ({ width: w / OCR_SCALE * scale, height: h / OCR_SCALE * scale, scale }),

@@ -245,6 +245,15 @@ function textLayerLines(items, pageNum) {
 }
 
 // ── OCR Table Extraction ──
+// The factor a picture is scaled by to be read: photos come down to about the size of a 200 dpi page (the long side at most `maxSide`).
+// A sheet at least twice as long as it is wide (a price list on one tall page) is limited by its short side instead, or its print would
+// shrink to nothing; a cap on the pixel count keeps its memory in bounds.
+function imageScale(width, height, maxSide = 2400, maxPixels = 30e6) {
+  const elongated = Math.max(width, height) >= 2 * Math.min(width, height);
+  const side = Math.min(1, maxSide / (elongated ? Math.min(width, height) : Math.max(width, height)));
+  return Math.min(side, Math.sqrt(maxPixels / (width * height)));
+}
+
 const inPageBody = (top, bottom, pageHeight) => top > pageHeight * 0.05 && bottom < pageHeight * 0.95;
 
 async function ocrTableExtract(ocrLines, ocrWords, borderCells = [], textItems = [], pageSizes = {}, readAsGrid = new Set()) {
@@ -1066,4 +1075,4 @@ function mergeMultiLineCells(rows, numCols) {
 }
 
 
-if (typeof module !== "undefined") module.exports = { gridCellsToWordGrid, inPageBody };
+if (typeof module !== "undefined") module.exports = { gridCellsToWordGrid, inPageBody, imageScale };
