@@ -323,6 +323,11 @@ function gridCells(xs, ys, f, rules = null) {
 
 // ── OpenCV: ruled lines -> grid ──
 
+// The width a picture is measured by: its own, unless it is more than 1.5 times as wide as it is tall.
+function gridSpan(width, height) {
+  return Math.min(width, 1.5 * height);
+}
+
 // A few boxes on a page of text are not a table: the extractor wants at least 20 cells. A frame across most of the page with three
 // columns or more is one too, however few rows it has: it is the page that carries over the last row of a table.
 function gridIsTable(xs, ys, pageWidth) {
@@ -342,15 +347,18 @@ function gridIsRuled(v) {
 // ruled lines are still several pixels thick there. Positions are scaled back to the full-size canvas.
 async function findGrid(canvas) {
   if (!opencvReady || typeof cv === 'undefined') return null;
-  const full = canvas.width / GRID_REF_WIDTH;
+  // A sheet far wider than a page (a price table printed across 24 columns) is printed at the same density as one: its text is no bigger,
+  // so the scale follows the width only up to 1.5 times the height, the shape of a landscape page.
+  const span = gridSpan(canvas.width, canvas.height);
+  const full = span / GRID_REF_WIDTH;
   let src = canvas, k = 1;
-  if (canvas.width > GRID_REF_WIDTH) {
-    k = GRID_REF_WIDTH / canvas.width;
+  if (span > GRID_REF_WIDTH) {
+    k = GRID_REF_WIDTH / span;
     src = document.createElement('canvas');
-    src.width = GRID_REF_WIDTH; src.height = Math.round(canvas.height * k);
+    src.width = Math.round(canvas.width * k); src.height = Math.round(canvas.height * k);
     src.getContext('2d').drawImage(canvas, 0, 0, src.width, src.height);
   }
-  const f = src.width / GRID_REF_WIDTH;
+  const f = Math.min(1, full);
   const w = src.width, h = src.height;
   const mats = [];
   const keep = (m) => { mats.push(m); return m; };
@@ -558,4 +566,4 @@ async function ocrPageWithGrid(canvas, pageNum, grid, withHeading = true) {
   return { words, lines: [], cells };
 }
 
-if (typeof module !== 'undefined') module.exports = { gridClusters, gridTextBands, gridJointCount, gridRulesBelow, gridIsSideways, gridLineHeight, gridLinePitch, gridDespeckle, gridSplitWide, gridSplitWideAny, gridInkRuns, gridSplitTall, gridSplitAtValley, gridIsTable, gridIsRuled, gridZones, gridCells, gridPickColumns, gridIsRuleFragment, gridRuleShare, gridMergeGroups, gridColumnLineHeights };
+if (typeof module !== 'undefined') module.exports = { gridClusters, gridTextBands, gridJointCount, gridRulesBelow, gridIsSideways, gridLineHeight, gridLinePitch, gridDespeckle, gridSplitWide, gridSplitWideAny, gridInkRuns, gridSplitTall, gridSplitAtValley, gridIsTable, gridIsRuled, gridSpan, gridZones, gridCells, gridPickColumns, gridIsRuleFragment, gridRuleShare, gridMergeGroups, gridColumnLineHeights };

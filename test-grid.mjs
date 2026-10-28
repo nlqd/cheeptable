@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 
-const { gridClusters, gridTextBands, gridJointCount, gridRulesBelow, gridIsSideways, gridLineHeight, gridDespeckle, gridSplitWide, gridSplitWideAny, gridInkRuns, gridSplitTall, gridSplitAtValley, gridIsTable, gridIsRuled, gridZones, gridLinePitch, gridUnderSegmented, gridCells, gridPickColumns, gridIsRuleFragment, gridRuleShare, gridColumnLineHeights } = createRequire(import.meta.url)('./docs/boq-grid.js');
+const { gridClusters, gridTextBands, gridJointCount, gridRulesBelow, gridIsSideways, gridLineHeight, gridDespeckle, gridSplitWide, gridSplitWideAny, gridInkRuns, gridSplitTall, gridSplitAtValley, gridIsTable, gridIsRuled, gridSpan, gridZones, gridLinePitch, gridUnderSegmented, gridCells, gridPickColumns, gridIsRuleFragment, gridRuleShare, gridColumnLineHeights } = createRequire(import.meta.url)('./docs/boq-grid.js');
 
 const tests = {
   'a thick ruled line collapses to one position'() {
@@ -201,6 +201,11 @@ const tests = {
   'no zone is read where the grid leaves less than a line of room'() {
     assert.deepEqual(gridZones([5, 1830], 2000, 1, true), []);
     assert.deepEqual(gridZones([300, 900], 2000, 1, false).map(z => z.name), ['foot']);
+  },
+  'a page is measured by its width, a sheet far wider than a page by 1.5 times its height'() {
+    assert.equal(gridSpan(1654, 2339), 1654);
+    assert.equal(gridSpan(2339, 1654), 2339);
+    assert.equal(gridSpan(10872, 2200), 3300);
   },
   'a ruled line crossed by the column rules is a row boundary, a page-edge shadow is not'() {
     const w = 20, h = 20, ver = new Uint8Array(w * h);
