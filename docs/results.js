@@ -183,6 +183,13 @@ CT.addStrings({
   function applyFilter() {
     const flaggedRows = new Set(R.order.map(o => o[0]));
     R.trs.forEach((tr, r) => { tr.hidden = tr.dataset.blank === '1' || (R.onlyFlagged && R.order.length > 0 && !flaggedRows.has(r)); });
+    // the one tab stop of the grid must not sit in a hidden row, or the keyboard cannot enter the table
+    const stop = R.tds.find(t => t && t.tabIndex === 0);
+    if (!stop || stop.parentElement.hidden) {
+      if (stop) stop.tabIndex = -1;
+      const first = R.trs.findIndex(tr => !tr.hidden);
+      if (first >= 0) R.tds[first * R.count].tabIndex = 0;
+    }
   }
   function jump(delta) {
     if (!R.order.length) return;

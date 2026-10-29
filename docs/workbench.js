@@ -11,7 +11,7 @@ CT.workbench = (() => {
 
   function showPage(p) {
     const info = pageInfo(p);
-    if (!info) { img.removeAttribute('src'); label.textContent = CT.t('pagesLbl', { p, n: getR().pages }); page = p; return; }
+    if (!info) { img.removeAttribute('src'); label.textContent = img.alt = CT.t('pagesLbl', { p, n: getR().pages }); page = p; return; }
     if (page !== p || img.getAttribute('src') !== info.url) { img.src = info.url; page = p; drawFlags(); }
     img.width = info.width; img.height = info.height;       // intrinsic ratio; CSS scales it to the pane
     label.textContent = CT.t('pagesLbl', { p, n: getR().pages });

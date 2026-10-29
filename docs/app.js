@@ -17,8 +17,11 @@ CT.pref = {
 
 // ── Strings ──
 CT.addStrings = (vi, en) => { Object.assign(CT.strings.vi, vi); Object.assign(CT.strings.en, en); };
+const missingStrings = new Set();
 CT.t = (key, params) => {
-  const s = CT.strings[CT.lang][key] ?? CT.strings.vi[key] ?? key;
+  const own = CT.strings[CT.lang][key];
+  if (own === undefined && !missingStrings.has(CT.lang + key)) { missingStrings.add(CT.lang + key); console.warn(`[CT] no ${CT.lang} string for "${key}", using vi`); }
+  const s = own ?? CT.strings.vi[key] ?? key;
   return params ? s.replace(/\{(\w+)\}/g, (_, k) => params[k] ?? '') : s;
 };
 CT.addStrings({
