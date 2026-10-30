@@ -208,3 +208,16 @@ Wide check against the live code, 1,140 pages sampled from every born-digital do
 Tried and dropped: a two-row minimum for a frame (it dropped a real carried-over page); reading above the grid on later pages (no page changed); a syllable dictionary built from the crawl's text layers to fix diacritics (36 pages up, 44 down, mean unchanged: the misreads are valid syllables or letter confusions, not tone marks on invalid ones).
 
 Still failing, about 53 pages: near misses at 0.84 to 0.89 where about 12% of the words are misread (common syllables such as công, hành, cấp, sở), corrupt reference layers (price-hcm t2 p13, t4 p11), Cyrillic and `Þ` outside the vocabulary, prose between two tables on one page, dot leaders, and dense bilingual tables with only header rules (port-spct p1).
+
+## Tall cells, footers and other recognisers (2026-10-29 to 10-30)
+
+On the 275 labelled table pages: page pass 0.807 to 0.819, document pass 0.723 to 0.735, mean F1 0.938 to 0.939 from raising the footer limit (`GRID_FOOT_LIMIT` 0.92 to 0.97: 6 pages better, 0 worse), then mean F1 0.933 to 0.935 from a page-wide line pitch (11 pages better, 0 worse, none crossing 0.9; dot54-dieuchinh p1 0.796 to 0.885). The pitch is the median of confident multi-line cell bands (at least 3 samples); a tall cell whose own pitch is missing or 20% off uses it, only if every cut lands in a gap. Contract unchanged at 473/473 numbers 1.000. Description exact moved 0.558 to 0.552 before the footer change was applied; cause not traced.
+
+Tried and dropped: image side limit 2400 to 3600 px (gained 4 pages, lost 2, one fell under 0.9); valley threshold 0.85 for the pitch cut (no change). Scoring against a body-only reference flips 1 page, so the 5% top and bottom filter is not what holds pages back.
+
+Other recognisers, offline on the failing pages:
+- PP-OCRv6 small: its dictionary lacks most tone-stacked Vietnamese letters (ả ạ ắ ế ộ ỏ ụ), so "Phụ lục số 06" reads "Ph lc só 06". Unusable.
+- SLANeXt (368 MB, 512x512 input) parses a tight crop of a simple table but fails on dense ones (dot54 p1 9x12 grid read as 5x6; port-spct p1 as 4 rows). Rejected.
+- Not tried: SenOCR-Vi (about 1B, Vietnamese fine-tune of PaddleOCR-VL) as a labeller or teacher; SVTRv2/OpenOCR as a CTC-only retrain recipe; GLM-OCR (635 MB at q4f16, too big for the page).
+
+Still failing, about 50 pages: small-print misreads (lỏng to lòng, chỉ to chi, nắn to năn), dense unruled tables, corrupt reference layers (price-hcm t2 p13, t4 p11), Cyrillic and `Þ`, bsr p18. These need recogniser work, not grid rules. The 212 scanned documents are not measured yet. Commits 9cfd18b, 51ab14f and 9c5dc3e are local; nothing was pushed.
