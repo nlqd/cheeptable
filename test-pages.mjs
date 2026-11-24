@@ -4,6 +4,9 @@ import { createRequire } from 'node:module';
 
 const { tablePages, shareTextInsideCells } = createRequire(import.meta.url)('./docs/boq-pages.js');
 const { gridCellsToWordGrid, inPageBody, imageScale, mergeMultiLineCells, isWrappedLine } = createRequire(import.meta.url)('./docs/boq-extract.js');
+const { markBoxes } = createRequire(import.meta.url)('./docs/boq-marks.js');
+const blank = (w, h) => new Uint8Array(w * h);
+const paint = (ink, w, x0, y0, x1, y1) => { for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) ink[y * w + x] = 1; };
 const row = (page, ...cells) => ({ page, cells: cells.map(value => ({ value })) });
 const tests = {
   'a photo comes down to a long side of 2400'() {
@@ -15,6 +18,28 @@ const tests = {
   'a very tall sheet keeps its width, the pixel cap holds'() {
     assert.equal(imageScale(2187, 10481), 1);
     assert.ok(imageScale(2400, 20000) < 0.8);
+  },
+  'a lone dash beside a detected box is boxed for the recogniser'() {
+    const ink = blank(300, 100); paint(ink, 300, 20, 40, 120, 60); paint(ink, 300, 200, 49, 212, 52);
+    const out = markBoxes(ink, 300, 100, [{ x0: 20, y0: 40, x1: 120, y1: 60 }]);
+    assert.equal(out.length, 1);
+    assert.ok(out[0].x0 < 200 && out[0].x1 > 212 && out[0].mark);
+  },
+  'ink inside a detected box is not a mark'() {
+    const ink = blank(300, 100); paint(ink, 300, 30, 49, 42, 52);
+    assert.equal(markBoxes(ink, 300, 100, [{ x0: 20, y0: 40, x1: 120, y1: 60 }]).length, 0);
+  },
+  'dots of a leader line are not marks'() {
+    const ink = blank(400, 100); paint(ink, 400, 20, 40, 120, 60); for (let x = 200; x < 300; x += 12) paint(ink, 400, x, 55, x + 3, 58);
+    assert.equal(markBoxes(ink, 400, 100, [{ x0: 20, y0: 40, x1: 120, y1: 60 }]).length, 0);
+  },
+  'a dash with no text on its line is left alone'() {
+    const ink = blank(300, 300); paint(ink, 300, 200, 249, 212, 252);
+    assert.equal(markBoxes(ink, 300, 300, [{ x0: 20, y0: 40, x1: 120, y1: 60 }]).length, 0);
+  },
+  'the two strokes of a ditto mark become one box'() {
+    const ink = blank(300, 100); paint(ink, 300, 20, 40, 120, 60); paint(ink, 300, 200, 45, 203, 53); paint(ink, 300, 207, 45, 210, 53);
+    assert.equal(markBoxes(ink, 300, 100, [{ x0: 20, y0: 40, x1: 120, y1: 60 }]).length, 1);
   },
   'a wrapped line in a text column joins the text above it'() {
     const data = (...cells) => ({ type: 'data', page: 1, cells: cells.map(value => ({ value })) });

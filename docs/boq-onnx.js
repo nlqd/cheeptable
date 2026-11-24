@@ -568,6 +568,8 @@ async function _detectTextBoxes(canvas) {
     }
   }
 
+  splitBoxes.push(...markBoxes(_inkMask(canvas), canvas.width, canvas.height, splitBoxes));
+
   // Sort by y then x (reading order)
   splitBoxes.sort((a, b) => {
     const dy = a.y0 - b.y0;
@@ -575,6 +577,14 @@ async function _detectTextBoxes(canvas) {
   });
 
   return splitBoxes;
+}
+
+// Dark pixels of the page as a 0/1 mask, for the lone marks the detector does not box
+function _inkMask(canvas) {
+  const { data } = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height);
+  const ink = new Uint8Array(canvas.width * canvas.height);
+  for (let i = 0; i < ink.length; i++) ink[i] = data[i * 4] + data[i * 4 + 1] + data[i * 4 + 2] < 420 ? 1 : 0;
+  return ink;
 }
 
 // ── VietOCR Recognition ──
@@ -819,7 +829,7 @@ async function ocrPageWithOnnx(canvas, pageNum) {
     const { text: rawText, confidence } = reads[i];
     // A lone dash or ditto mark (a zero, or "same as above") is read at lower confidence than a word, whatever it is
     const mark = /^[-–—"'`]{1,2}$/.test(rawText.trim()) && confidence >= 0.35;
-    if (!rawText.trim() || (confidence < 0.65 && !mark)) return;
+    if (!rawText.trim() || (confidence < 0.65 && !mark) || (box.mark && !mark)) return;
 
     const text = _postProcess(rawText);
     if (!text.trim()) return;
