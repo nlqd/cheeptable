@@ -825,8 +825,10 @@ async function ocrPageWithOnnx(canvas, pageNum) {
     window.CT?.emit('read', { page: pageNum, done: ++readCount, total: usable.length, text: r.text, conf: r.confidence, box: usable[i] });
   });
 
+  const heights = usable.map(b => b.y1 - b.y0).sort((a, b) => a - b), medianH = heights[heights.length >> 1];
   usable.forEach((box, i) => {
-    const { text: rawText, confidence } = reads[i];
+    const { confidence } = reads[i];
+    const rawText = readAsDitto(reads[i].text, box.y1 - box.y0, medianH);
     // A lone dash or ditto mark (a zero, or "same as above") is read at lower confidence than a word, whatever it is
     const mark = /^[-–—"'`]{1,2}$/.test(rawText.trim()) && confidence >= 0.35;
     if (!rawText.trim() || (confidence < 0.65 && !mark) || (box.mark && !mark)) return;

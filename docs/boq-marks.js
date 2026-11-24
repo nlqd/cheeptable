@@ -58,4 +58,9 @@ function markBoxes(ink, w, h, boxes) {
   }));
 }
 
-if (typeof module !== 'undefined') module.exports = { inkBlobs, markBoxes };
+// A ditto mark inside a detected box is read as "11" or "II": two short strokes. Real digits stand as tall as the text around them, the ditto only about half.
+function readAsDitto(text, boxHeight, medianHeight) {
+  return /^[1Il|]{2}$/.test(text.trim()) && boxHeight <= 0.7 * medianHeight ? '"' : text;
+}
+
+if (typeof module !== 'undefined') module.exports = { inkBlobs, markBoxes, readAsDitto };

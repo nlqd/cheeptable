@@ -4,7 +4,7 @@ import { createRequire } from 'node:module';
 
 const { tablePages, shareTextInsideCells } = createRequire(import.meta.url)('./docs/boq-pages.js');
 const { gridCellsToWordGrid, inPageBody, imageScale, mergeMultiLineCells, isWrappedLine } = createRequire(import.meta.url)('./docs/boq-extract.js');
-const { markBoxes } = createRequire(import.meta.url)('./docs/boq-marks.js');
+const { markBoxes, readAsDitto } = createRequire(import.meta.url)('./docs/boq-marks.js');
 const blank = (w, h) => new Uint8Array(w * h);
 const paint = (ink, w, x0, y0, x1, y1) => { for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) ink[y * w + x] = 1; };
 const row = (page, ...cells) => ({ page, cells: cells.map(value => ({ value })) });
@@ -32,6 +32,15 @@ const tests = {
   'dots of a leader line are not marks'() {
     const ink = blank(400, 100); paint(ink, 400, 20, 40, 120, 60); for (let x = 200; x < 300; x += 12) paint(ink, 400, x, 55, x + 3, 58);
     assert.equal(markBoxes(ink, 400, 100, [{ x0: 20, y0: 40, x1: 120, y1: 60 }]).length, 0);
+  },
+  'two short strokes read as 11 are a ditto mark'() {
+    assert.equal(readAsDitto('11', 25, 40), '"');
+  },
+  'a real 11 as tall as its line stays'() {
+    assert.equal(readAsDitto('11', 40, 40), '11');
+  },
+  'a single short 1 stays'() {
+    assert.equal(readAsDitto('1', 20, 40), '1');
   },
   'a dash with no text on its line is left alone'() {
     const ink = blank(300, 300); paint(ink, 300, 200, 249, 212, 252);
