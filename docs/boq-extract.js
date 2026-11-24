@@ -900,10 +900,23 @@ async function spatialExtract(filteredLines, filteredWords) {
 
     // For classifyRow, extract values
     var cellValues = cells.map(c => c.value);
-    rows.push({ type: classifyRow(cellValues, numCols), cells: cells, page: line.page });
+    var type = classifyRow(cellValues, numCols);
+    if (type === 'header' && isWrappedLine(line, filteredLines.slice(Math.max(0, li - 3), li))) type = 'data';
+    rows.push({ type: type, cells: cells, page: line.page });
   }
 
   return mergeMultiLineCells(rows, numCols);
+}
+
+// A line with real words in it that starts where a line just above it starts (within 25 px, no more than two line heights below)
+// continues that line; a stray stamp or mark does not line up with the text above. classifyRow calls any single-cell row a stray mark.
+function isWrappedLine(line, above) {
+  var h = Math.max(line.y1 - line.y, 1);
+  var left = line.words[0].x;
+  var letters = (line.text.match(/[A-Za-zÀ-ỹ]/g) || []).length;
+  return letters >= 4 && above.some(function(a) {
+    return a.page === line.page && line.y - a.y <= 2.2 * h && a.words.some(function(w) { return Math.abs(w.x - left) <= 25; });
+  });
 }
 
 function detectColumns(words, lines) {
@@ -1061,8 +1074,17 @@ function mergeMultiLineCells(rows, numCols) {
         } else {
           prev.cells[1] = (getVal(prev.cells[1]) + ' ' + desc).trim();
         }
+        // A wrapped line in a text column (a description that is not in column 1) joins the text above it, not dropped. It goes to the
+        // nearest of the last three rows that holds text in that column, so a line of codes between two lines of description does not split them.
         for (var c = 2; c < numCols; c++) {
-          if (row.cells[c] && !getVal(prev.cells[c])) prev.cells[c] = row.cells[c];
+          if (!row.cells[c] || !getVal(row.cells[c])) continue;
+          var text = function(cell) { return /[A-Za-zÀ-ỹ]/.test(getVal(cell)); };
+          var owner = null;
+          for (var k = merged.length - 1; k >= Math.max(0, merged.length - 3) && !owner; k--) {
+            if (merged[k].page === row.page && typeof merged[k].cells[c] === 'object' && text(merged[k].cells[c])) owner = merged[k];
+          }
+          if (owner && text(row.cells[c])) owner.cells[c].value = (owner.cells[c].value + ' ' + getVal(row.cells[c])).trim();
+          else if (!getVal(prev.cells[c])) prev.cells[c] = row.cells[c];
         }
         continue;
       }
@@ -1075,4 +1097,4 @@ function mergeMultiLineCells(rows, numCols) {
 }
 
 
-if (typeof module !== "undefined") module.exports = { gridCellsToWordGrid, inPageBody, imageScale };
+if (typeof module !== "undefined") module.exports = { gridCellsToWordGrid, inPageBody, imageScale, mergeMultiLineCells, isWrappedLine };

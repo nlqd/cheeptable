@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 
 const { tablePages, shareTextInsideCells } = createRequire(import.meta.url)('./docs/boq-pages.js');
-const { gridCellsToWordGrid, inPageBody, imageScale } = createRequire(import.meta.url)('./docs/boq-extract.js');
+const { gridCellsToWordGrid, inPageBody, imageScale, mergeMultiLineCells, isWrappedLine } = createRequire(import.meta.url)('./docs/boq-extract.js');
 const row = (page, ...cells) => ({ page, cells: cells.map(value => ({ value })) });
 const tests = {
   'a photo comes down to a long side of 2400'() {
@@ -15,6 +15,31 @@ const tests = {
   'a very tall sheet keeps its width, the pixel cap holds'() {
     assert.equal(imageScale(2187, 10481), 1);
     assert.ok(imageScale(2400, 20000) < 0.8);
+  },
+  'a wrapped line in a text column joins the text above it'() {
+    const data = (...cells) => ({ type: 'data', page: 1, cells: cells.map(value => ({ value })) });
+    const rows = [data('', '3.', 'TCVN 13950', '', 'Sơn và vecni - Xác định'), data('', '', '', '', 'barium - Phương pháp'), data('', '', '', '', 'tử ngọn lửa.')];
+    const [merged] = mergeMultiLineCells(rows, 5);
+    assert.equal(merged.cells[4].value, 'Sơn và vecni - Xác định barium - Phương pháp tử ngọn lửa.');
+  },
+  'a wrapped line goes to the row that holds text in its column, not to a line of codes between'() {
+    const data = (...cells) => ({ type: 'data', page: 1, cells: cells.map(value => ({ value })) });
+    const rows = [data('', '3.', 'TCVN 13950', '', 'Sơn và vecni'), data('', '', 'ISO 3856', '', ''), data('', '', '', '', 'barium')];
+    const merged = mergeMultiLineCells(rows, 5);
+    assert.equal(merged[0].cells[4].value, 'Sơn và vecni barium');
+  },
+  'a line under a line with the same left edge is a wrapped line'() {
+    const line = (y, x, text) => ({ page: 1, y, y1: y + 40, text, words: [{ x, text }] });
+    assert.ok(isWrappedLine(line(285, 819, 'barium - Phương pháp'), [line(242, 818, 'Sơn và vecni')]));
+  },
+  'a stamp mark far from any line above is not a wrapped line'() {
+    const line = (y, x, text) => ({ page: 1, y, y1: y + 40, text, words: [{ x, text }] });
+    assert.ok(!isWrappedLine(line(900, 700, 'ĐÃ NHẬN'), [line(242, 818, 'Sơn và vecni')]));
+  },
+  'a wrapped line under a number cell does not change the number'() {
+    const data = (...cells) => ({ type: 'data', page: 1, cells: cells.map(value => ({ value })) });
+    const [merged] = mergeMultiLineCells([data('1', 'Cát', 'm3', '400.000'), data('', 'vàng', '', '')], 4);
+    assert.equal(merged.cells[3].value, '400.000');
   },
   'a page of rows with several cells is a table'() {
     const rows = [1, 2, 3, 4].map(n => row(1, String(n), 'Cát', 'm3', '400.000'));
