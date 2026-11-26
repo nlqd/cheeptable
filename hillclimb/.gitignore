@@ -1,6 +1,5 @@
 size/thumbs/
 size/aball/
-size/labels/
 size/ab_all_lane*.jsonl
 size/ab_all_lane*.log
 size/ab_istable_lane*.jsonl
@@ -16,3 +15,8 @@ size/judge3/
 size/ab_tab_v4_lane*.jsonl
 size/ab_tab_v5_lane*.jsonl
 size/ab_tab_v6_lane*.jsonl
+# lab runs of the table benchmark: page pictures and per-lane scores (pages-final.csv in size/results is the record)
+size/aball_*/
+size/ab_warm/
+size/ab_*_lane[0-9].jsonl
+size/repro_lane*.jsonl

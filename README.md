@@ -7,3 +7,5 @@ Run locally: `python3 hillclimb/ux/serve.py 8080`, then open http://localhost:80
 Tests: `node test-grid.mjs`, and likewise `test-arith`, `test-sequence`, `test-results`, `test-wire`. Browser checks are in `hillclimb/ux/`.
 
 The recogniser is an 8.6 MB distilled VietOCR hosted on Hugging Face (`dzngo/vietocr-models`); how it was built and measured is in `hillclimb/size/FINDINGS-size.md`. Other measurements and research are in `hillclimb/`.
+
+To reproduce the results (tests, the 272-page table benchmark, the recogniser), see `REPRODUCE.md`.

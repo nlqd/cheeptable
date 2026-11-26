@@ -1,0 +1,62 @@
+[
+ {
+  "id": "t14_001_tkb_timetable",
+  "url": "https://commons.wikimedia.org/wiki/File:Th%E1%BB%9Di_Kh%C3%B3a_Bi%E1%BB%83u_2.png",
+  "local_path": "benchmark/raw3/t14/t14_001_tkb_timetable/t14_001_tkb_timetable.png",
+  "title": "Thời Khóa Biểu 2",
+  "page_count": 1,
+  "born_digital": false,
+  "table_style": "ruled",
+  "columns": 7,
+  "size_mb": 0.03,
+  "legal_basis": "Openly licensed image (CC BY-SA 4.0) uploaded to Wikimedia Commons.",
+  "notes": "Weekly school timetable grid (Thứ Hai to Thứ Bảy, with period and break rows) with a ruled outline.",
+  "category": "schedule_scan",
+  "scan_quality": "clean scan"
+ },
+ {
+  "id": "t14_002_cup_schedule_1931",
+  "url": "https://commons.wikimedia.org/wiki/File:Danh_s%C3%A1ch_c%C3%A1c_tr%E1%BA%ADn_%C4%91%E1%BA%A5u_%E2%80%9CC%C3%BAp_th%C3%A0nh_ph%E1%BB%91%E2%80%9D_n%C4%83m_1931_theo_quy%E1%BA%BFt_%C4%91%E1%BB%8Bnh_c%E1%BB%A7a_Ban_T%E1%BB%95_ch%E1%BB%A9c_gi%E1%BA%A3i_h%E1%BB%8Dp_ng%C3%A0y_14_th%C3%A1ng_10_n%C4%83m_1931.jpg",
+  "local_path": "benchmark/raw3/t14/t14_002_cup_schedule_1931/t14_002_cup_schedule_1931.jpg",
+  "title": "Danh sách các trận đấu Cúp thành phố năm 1931",
+  "page_count": 1,
+  "born_digital": false,
+  "table_style": "unruled",
+  "columns": 3,
+  "size_mb": 0.11,
+  "legal_basis": "Public archival document held by the National Archives Center I and uploaded to Wikimedia Commons.",
+  "notes": "Typed 1931 city cup match schedule listing date, time and the two teams for each fixture, with no ruled grid.",
+  "category": "schedule_scan",
+  "scan_quality": "poor scan"
+ },
+ {
+  "id": "t14_003_salary_qn_2021",
+  "url": "https://commons.wikimedia.org/wiki/File:D%E1%BB%B1_th%E1%BA%A3o_B%E1%BA%A3ng_l%C6%B0%C6%A1ng_Qu%C3%A2n_nh%C3%A2n_chuy%C3%AAn_nghi%E1%BB%87p_Vi%E1%BB%87t_Nam_n%C4%83m_2021.jpg",
+  "local_path": "benchmark/raw3/t14/t14_003_salary_qn_2021/t14_003_salary_qn_2021.jpg",
+  "title": "Dự kiến bảng lương quân nhân chuyên nghiệp năm 2021",
+  "page_count": 1,
+  "born_digital": false,
+  "table_style": "ruled",
+  "columns": 13,
+  "size_mb": 1.01,
+  "legal_basis": "Draft salary-scale table published for public comment and uploaded to Wikimedia Commons.",
+  "notes": "Draft salary grid for professional military ranks, with coefficient, allowance and 2020 versus 2021 pay columns, in colour-banded rows.",
+  "category": "salary_table",
+  "scan_quality": "clean scan"
+ },
+ {
+  "id": "t14_004_salary_sq_2021",
+  "url": "https://commons.wikimedia.org/wiki/File:D%E1%BB%B1_th%E1%BA%A3o_B%E1%BA%A3ng_l%C6%B0%C6%A1ng_S%C4%A9_quan_Qu%C3%A2n_%C4%91%E1%BB%99i_v%C3%A0_C%C3%B4ng_an_Vi%E1%BB%87t_Nam_n%C4%83m_2021.jpg",
+  "local_path": "benchmark/raw3/t14/t14_004_salary_sq_2021/t14_004_salary_sq_2021.jpg",
+  "title": "Dự thảo bảng lương sĩ quan Quân đội và Công an Việt Nam năm 2021",
+  "page_count": 1,
+  "born_digital": false,
+  "table_style": "ruled",
+  "columns": 16,
+  "size_mb": 8.28,
+  "legal_basis": "Draft salary-scale table published for public comment and uploaded to Wikimedia Commons under a free licence.",
+  "notes": "Poster-style page of several stacked ruled salary-grade tables for officer groups, with merged group cells and a wide header row.",
+  "category": "salary_table",
+  "scan_quality": "clean scan"
+ }
+]
